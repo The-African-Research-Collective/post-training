@@ -112,7 +112,14 @@ def encode_sft_example(example, tokenizer, max_seq_length):
                     max_length=max_seq_length,
                     add_generation_prompt=False,
                 ).shape[1]
+
+
             # set the label to -100 for the non-assistant part
+            # The reason why we set this value to -100 is so that the loss is ignored for these tokens.
+            # This is because when calculating cross-entropy using pytorch, the function provides a 'ignore_index' parameter
+            # that allows us to ignore certain tokens when calculating the loss and the default value for this parameter is -100.
+            # From Torch Documentation "" ignore_index (int, optional) – Specifies a target value that is ignored and does not contribute to the input gradient.""
+            # https://pytorch.org/docs/stable/generated/torch.nn.CrossEntropyLoss.html
             labels[:, message_start_idx:message_end_idx] = -100
             if max_seq_length and message_end_idx >= max_seq_length:
                 break
