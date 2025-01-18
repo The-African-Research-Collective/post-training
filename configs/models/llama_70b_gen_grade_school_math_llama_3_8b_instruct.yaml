@@ -6,15 +6,16 @@ model_revision: main
 # =============================================================================
 # ========================= Data Arguments ===================================
 # =============================================================================
-dataset_name: taresco/doodle_ift_math_10k
-chat_template_name: llama_3_instruct
+dataset_name: taresco/doodle_ift_math_10k_llama_3_70b
+chat_template_name: "meta-llama/Llama-3.1-8B-Instruct"
 max_seq_length: 2048
+max_train_samples: 10000
 # =============================================================================
 # ========================= Experiments Arguments =============================
 # =============================================================================
-exp_name: persona_math_10k_llama_3_8b
-run_name: persona_math_10k_llama_3_8b
-project_name: persona_math_10k_llama_3_8b
+exp_name: persona_llama70b_math_10k_llama_3_8b_instruct
+run_name: persona_llama70b_math_10k_llama_3_8b_instruct
+project_name: persona_llama70b_math_10k_llama_3_8b_instruct
 seed: 42
 report_to:
   - wandb
@@ -31,5 +32,4 @@ wandb_project_name: potential-doodle
 wandb_entity: african-research-collective
 logging_steps: 1
 checkpointing_steps: epoch
-hf_repo_id: persona_math_10k_llama_3_8b
 

@@ -1,0 +1,34 @@
+# =============================================================================
+# ========================= Model Arguments ===================================
+# =============================================================================
+model_name_or_path: meta-llama/Llama-3.2-1B
+model_revision: main
+# =============================================================================
+# ========================= Data Arguments ===================================
+# =============================================================================
+dataset_name: taresco/doodle_ift_math_10k
+chat_template_name: llama_3_instruct
+max_train_samples: 100
+max_seq_length: 1024
+# =============================================================================
+# ========================= Experiments Arguments =============================
+# =============================================================================
+exp_name: dummy
+run_name: dummy
+project_name: dummy
+seed: 42
+report_to:
+  - wandb
+gradient_accumulation_steps: 1
+use_flash_attention: False
+output_dir: runs
+per_device_train_batch_size: 1
+push_to_hub: true
+with_tracking: true
+hf_entity: taresco
+reduce_loss: sum
+report_to: wandb
+wandb_project_name: potential-doodle
+wandb_entity: african-research-collective
+logging_steps: 10
+checkpointing_steps: epoch

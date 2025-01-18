@@ -51,7 +51,14 @@ from training_args import ExperimentArguments, ModelArguments, DatasetArguments
 
 logger = get_logger(__name__)
 
-def encode_sft_example(example, tokenizer, max_seq_length):
+def check_token_ids_in_text(text_ids, token_ids):
+    results = []
+    for i in range(len(text_ids) - len(token_ids) + 1):
+        if text_ids[i:i+len(token_ids)] == token_ids:
+            results.append((i, i+len(token_ids)))
+    return results
+
+def encode_sft_example(example, tokenizer, max_seq_length, mask_instructions=True):
     """
     This function encodes a single example into a format that can be used for sft training.
     Here, we assume each example has a 'messages' field. Each message in it is a dict with 'role' and 'content' fields.
@@ -69,7 +76,14 @@ def encode_sft_example(example, tokenizer, max_seq_length):
         max_length=max_seq_length,
         add_generation_prompt=False,
     )
+
     labels = input_ids.clone()
+
+    list_labels = labels.flatten().tolist()
+    modify_labels = False
+    tokens_to_mask = ["<|start_header_id|>user<|end_header_id|>", "<|start_header_id|>assistant<|end_header_id|>",]
+    list_of_tokens_ids_to_mask = [tokenizer(t, add_special_tokens=False).input_ids for t in tokens_to_mask]
+
     # mask the non-assistant part for avoiding loss
     for message_idx, message in enumerate(messages):
         if message["role"] != "assistant":
@@ -112,10 +126,42 @@ def encode_sft_example(example, tokenizer, max_seq_length):
                     max_length=max_seq_length,
                     add_generation_prompt=False,
                 ).shape[1]
+
+
             # set the label to -100 for the non-assistant part
-            labels[:, message_start_idx:message_end_idx] = -100
+            # The reason why we set this value to -100 is so that the loss is ignored for these tokens.
+            # This is because when calculating cross-entropy using pytorch, the function provides a 'ignore_index' parameter
+            # that allows us to ignore certain tokens when calculating the loss and the default value for this parameter is -100.
+            # From Torch Documentation "" ignore_index (int, optional) – Specifies a target value that is ignored and does not contribute to the input gradient.""
+            # https://pytorch.org/docs/stable/generated/torch.nn.CrossEntropyLoss.html
+                
+            if mask_instructions:
+                print(labels[:, message_start_idx:message_end_idx])
+                labels[:, message_start_idx:message_end_idx] = -100
+                print(labels)
+                print(labels[:, message_start_idx:message_end_idx])
+            else:
+                # Set special tokens to -100
+                # TODO: This is very hacky, we should find a better way to do this
+                # Also this only works for the llama chat template
+                modify_labels = True
+
+                for i, token_ids in enumerate(list_of_tokens_ids_to_mask):
+                    results = check_token_ids_in_text(list_labels, token_ids)
+                    for j, (x, y) in enumerate(results):
+                        
+                        list_labels[x:y] = [-100] * (y-x)
+                    
+                        if i == 0 and j == 0:
+                            results.append((0, x))
+
+
             if max_seq_length and message_end_idx >= max_seq_length:
                 break
+            
+    if modify_labels:
+        labels = torch.tensor(list_labels).reshape(labels.shape)
+        
     attention_mask = torch.ones_like(input_ids)
     return {
         "input_ids": input_ids.flatten(),
@@ -396,7 +442,7 @@ def main(args: ArgumentParserPlus):
     
     with accelerator.main_process_first():
         train_dataset = train_dataset.map(
-            functools.partial(encode_sft_example, tokenizer=tokenizer, max_seq_length=data_args.max_seq_length),
+            functools.partial(encode_sft_example, tokenizer=tokenizer, max_seq_length=data_args.max_seq_length, mask_instructions=exp_args.mask_instructions),
             batched=False,
             num_proc=data_args.preprocessing_num_workers,
             load_from_cache_file=not data_args.overwrite_cache,
