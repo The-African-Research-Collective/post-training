@@ -7,7 +7,7 @@ model_revision: main
 # ========================= Data Arguments ===================================
 # =============================================================================
 dataset_name: taresco/doodle_ift_math_10k_llama_3_70b
-chat_template_name: llama_3_instruct
+chat_template_name: "meta-llama/Llama-3.1-8B-Instruct"
 max_seq_length: 2048
 max_train_samples: 10000
 # =============================================================================

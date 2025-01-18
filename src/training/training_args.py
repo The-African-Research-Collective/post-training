@@ -318,6 +318,10 @@ class ExperimentArguments:
         default=500,
         metadata={"help": "Save checkpoint every n steps."},
     )
+    mask_instructions: Optional[bool] = field(
+        default=True,
+        metadata={"help": "Whether to mask the instructions in the training data"}
+    )
     
 
     def __post_init__(self):
