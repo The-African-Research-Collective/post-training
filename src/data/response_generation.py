@@ -16,8 +16,6 @@ from src.llms.litellm_client import LiteLLM
 from src.llms.azure_client import AzureOPENAILLM
 from src.llms.tgi_inference_client import TGI_client
 
-os.environ["TOGETHERAI_API_KEY"] = "74374988dc3db66faf1c57cbd53d7bff6e71d468c76a087c87d080c7a6e75d9b"
-
 def _build_prompt_message(
         prompt: str,
         language: str,
