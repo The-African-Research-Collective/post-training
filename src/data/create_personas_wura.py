@@ -1,10 +1,8 @@
 """
-python3 src/data/create_personas_wura.py --batch_size 10 --language eng --model "azure_ai/newgpt4o"
+python3 src/data/create_personas_wura.py --batch_size 10 --language eng \
+    --model "azure_ai/newgpt4o"
 """
 import os
-import sys
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-
 import time
 import asyncio
 import argparse
@@ -23,24 +21,33 @@ from src.llms.tgi_inference_client import TGI_client
 
 load_dotenv()
 
-DATASET_NAME="castorini/wura"
+DATASET_NAME = "castorini/wura"
+
 
 class Persona(BaseModel):
-  countries: list[str]
-  languages: list[str]
-  persona: str
+    countries: list[str]
+    languages: list[str]
+    persona: str
+
 
 class PersonaList(BaseModel):
     persona_list: list[Persona]
+
 
 def prompt_processor(example):
     # get the first 200 words of the text
     text = example["content"].split()[:200]
     text = " ".join(text)
-    prompt = [ {"role": "system", "content": PERSONA_GENERATION, "cache_control": {"type": "ephemeral"}}, 
-              {"role": "user", "content": text}]
-    
-    example['templated_prompt'] = prompt
+    prompt = [
+        {
+            "role": "system",
+            "content": PERSONA_GENERATION,
+            "cache_control": {"type": "ephemeral"},
+        },
+        {"role": "user", "content": text},
+    ]
+
+    example["templated_prompt"] = prompt
     return example
 
 
@@ -50,7 +57,7 @@ def batch_dataset_generator(dataset, batch_size):
     # Shuffle the dataset
     dataset = dataset.shuffle()
     for i in range(0, len(dataset), batch_size):
-        yield dataset[i:i+batch_size]
+        yield dataset[i : i + batch_size]
 
 
 async def main(args):
@@ -71,30 +78,45 @@ async def main(args):
             processed_pages = f.read().splitlines()
     else:
         processed_pages = []
-    
+
     # filter dataset to pages that have more than 1000 words
-    dataset = dataset.filter(lambda x: len(x["content"].split()) > 100 if x["content"] else False)
+    dataset = dataset.filter(
+        lambda x: len(x["content"].split()) > 100 if x["content"] else False
+    )
     print(f"Processing {len(dataset['train'])} pages")
 
     # Remove pages that have already been processed
     dataset = dataset.filter(lambda x: str(x["id"]) not in set(processed_pages))
     print(f"Processing {len(dataset['train'])} pages")
-    
-    with jsonlines.open(f"{args.data_directory}/{args.language}_personas.jsonl", "a") as writer, open(file_path, "a") as f:
+
+    with jsonlines.open(
+        f"{args.data_directory}/{args.language}_personas.jsonl", "a"
+    ) as writer, open(file_path, "a") as f:
         # iterate over the dataset and use multiprocessing to generate personas
 
-        for i, batch in tqdm(enumerate(batch_dataset_generator(dataset['train'], args.batch_size)), total=len(dataset)//args.batch_size):
+        for i, batch in tqdm(
+            enumerate(batch_dataset_generator(dataset["train"], args.batch_size)),
+            total=len(dataset) // args.batch_size,
+        ):
             print(f"Processing batch {i}")
 
             try:
+                results = await llm.completion(batch["templated_prompt"], PersonaList)
 
-                results = await llm.completion(batch['templated_prompt'], PersonaList)
-
-                for i, id, url, res in zip(range(len(batch)), batch["id"], batch["url"], results):
+                for i, id, url, res in zip(
+                    range(len(batch)), batch["id"], batch["url"], results
+                ):
                     model_used = res.model
                     try:
-                        for persona in res.generation['persona_list']:
-                            writer.write({"id": id, "url": url, "persona": persona, "model": model_used})
+                        for persona in res.generation["persona_list"]:
+                            writer.write(
+                                {
+                                    "id": id,
+                                    "url": url,
+                                    "persona": persona,
+                                    "model": model_used,
+                                }
+                            )
                         f.write(f"{id}\n")
                     except KeyError:
                         print(f"Error processing {id} with model {model_used}")
@@ -102,7 +124,7 @@ async def main(args):
             except tenacity.RetryError:
                 print(f"Error processing batch {i}")
                 continue
-            
+
             time.sleep(10)
 
 
@@ -111,8 +133,15 @@ if __name__ == "__main__":
     parser.add_argument("--data_directory", type=str, default="files/wura_personas")
     parser.add_argument("--language", type=str)
     parser.add_argument("--batch_size", type=int, default=10)
-    parser.add_argument("--model", type=Generation_Models, choices=list(Generation_Models))
-    parser.add_argument("--model_provider", type=ModelProvider, choices=list(ModelProvider), required=False)
+    parser.add_argument(
+        "--model", type=Generation_Models, choices=list(Generation_Models)
+    )
+    parser.add_argument(
+        "--model_provider",
+        type=ModelProvider,
+        choices=list(ModelProvider),
+        required=False,
+    )
     args = parser.parse_args()
 
     asyncio.run(main(args))

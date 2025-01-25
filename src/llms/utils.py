@@ -1,6 +1,7 @@
 import json
 from typing import Any, Dict
 
+
 def json_parse_model_output(output: str) -> Dict[str, Any]:
     """
     This function parses the output of a model and returns a dictionary.
@@ -8,7 +9,7 @@ def json_parse_model_output(output: str) -> Dict[str, Any]:
     Then it finds the last closing bracket and removes everything after it.
     Finally, it returns the JSON object.
     """
-    
+
     # Find the first opening bracket and remove everything before it
     start = output.find("[")
     start_curly = output.find("{")
@@ -20,8 +21,9 @@ def json_parse_model_output(output: str) -> Dict[str, Any]:
         end = output.rfind("]", start)
 
     output = output[start:]
-    output = output[:end-start+1]
+    output = output[: end - start + 1]
 
     return json.loads(output)
 
-CHAT_TEMPLATES=[]
+
+CHAT_TEMPLATES = []

@@ -25,38 +25,44 @@ from accelerate import Accelerator
 from accelerate.logging import get_logger
 from datasets import load_dataset
 from peft import LoraConfig, TaskType, get_peft_model, prepare_model_for_kbit_training
-from transformers import (AutoConfig,
-                          AutoTokenizer,
-                          BitsAndBytesConfig,
-                          AutoModelForCausalLM,
-                          LlamaTokenizer,
-                          LlamaTokenizerFast,
-                          GPTNeoXTokenizerFast,
-                          GPT2Tokenizer,
-                          DataCollatorForSeq2Seq,
-                          OPTForCausalLM,
-                          get_scheduler,)
+from transformers import (
+    AutoConfig,
+    AutoTokenizer,
+    BitsAndBytesConfig,
+    AutoModelForCausalLM,
+    LlamaTokenizer,
+    LlamaTokenizerFast,
+    GPTNeoXTokenizerFast,
+    GPT2Tokenizer,
+    DataCollatorForSeq2Seq,
+    OPTForCausalLM,
+    get_scheduler,
+)
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from utils import (ArgumentParserPlus,
-                   mix_datasets,
-                   CHAT_TEMPLATES,
-                   get_last_checkpoint_path,
-                   clean_last_n_checkpoints,
-                   upload_metadata_to_hf,
-                   push_folder_to_hub)
+from utils import (
+    ArgumentParserPlus,
+    mix_datasets,
+    CHAT_TEMPLATES,
+    get_last_checkpoint_path,
+    clean_last_n_checkpoints,
+    upload_metadata_to_hf,
+    push_folder_to_hub,
+)
 from model_utils import save_with_accelerate
 from src.training.sft_args import ExperimentArguments, ModelArguments, DatasetArguments
 
 logger = get_logger(__name__)
 
+
 def check_token_ids_in_text(text_ids, token_ids):
     results = []
     for i in range(len(text_ids) - len(token_ids) + 1):
-        if text_ids[i:i+len(token_ids)] == token_ids:
-            results.append((i, i+len(token_ids)))
+        if text_ids[i : i + len(token_ids)] == token_ids:
+            results.append((i, i + len(token_ids)))
     return results
+
 
 def encode_sft_example(example, tokenizer, max_seq_length, mask_instructions=True):
     """
@@ -81,8 +87,13 @@ def encode_sft_example(example, tokenizer, max_seq_length, mask_instructions=Tru
 
     list_labels = labels.flatten().tolist()
     modify_labels = False
-    tokens_to_mask = ["<|start_header_id|>user<|end_header_id|>", "<|start_header_id|>assistant<|end_header_id|>",]
-    list_of_tokens_ids_to_mask = [tokenizer(t, add_special_tokens=False).input_ids for t in tokens_to_mask]
+    tokens_to_mask = [
+        "<|start_header_id|>user<|end_header_id|>",
+        "<|start_header_id|>assistant<|end_header_id|>",
+    ]
+    list_of_tokens_ids_to_mask = [
+        tokenizer(t, add_special_tokens=False).input_ids for t in tokens_to_mask
+    ]
 
     # mask the non-assistant part for avoiding loss
     for message_idx, message in enumerate(messages):
@@ -92,7 +103,9 @@ def encode_sft_example(example, tokenizer, max_seq_length, mask_instructions=Tru
                 message_start_idx = 0
             else:
                 message_start_idx = tokenizer.apply_chat_template(
-                    conversation=messages[:message_idx],  # here marks the end of the previous messages
+                    conversation=messages[
+                        :message_idx
+                    ],  # here marks the end of the previous messages
                     tokenize=True,
                     return_tensors="pt",
                     padding=False,
@@ -101,7 +114,10 @@ def encode_sft_example(example, tokenizer, max_seq_length, mask_instructions=Tru
                     add_generation_prompt=False,
                 ).shape[1]
             # next, we calculate the end index of this non-assistant message
-            if message_idx < len(messages) - 1 and messages[message_idx + 1]["role"] == "assistant":
+            if (
+                message_idx < len(messages) - 1
+                and messages[message_idx + 1]["role"] == "assistant"
+            ):
                 # for intermediate messages that follow with an assistant message, we need to
                 # set `add_generation_prompt=True` to avoid the assistant generation prefix being included in the loss
                 # (e.g., `<|assistant|>`)
@@ -127,14 +143,13 @@ def encode_sft_example(example, tokenizer, max_seq_length, mask_instructions=Tru
                     add_generation_prompt=False,
                 ).shape[1]
 
-
             # set the label to -100 for the non-assistant part
             # The reason why we set this value to -100 is so that the loss is ignored for these tokens.
             # This is because when calculating cross-entropy using pytorch, the function provides a 'ignore_index' parameter
             # that allows us to ignore certain tokens when calculating the loss and the default value for this parameter is -100.
             # From Torch Documentation "" ignore_index (int, optional) – Specifies a target value that is ignored and does not contribute to the input gradient.""
             # https://pytorch.org/docs/stable/generated/torch.nn.CrossEntropyLoss.html
-                
+
             if mask_instructions:
                 print(labels[:, message_start_idx:message_end_idx])
                 labels[:, message_start_idx:message_end_idx] = -100
@@ -149,19 +164,17 @@ def encode_sft_example(example, tokenizer, max_seq_length, mask_instructions=Tru
                 for i, token_ids in enumerate(list_of_tokens_ids_to_mask):
                     results = check_token_ids_in_text(list_labels, token_ids)
                     for j, (x, y) in enumerate(results):
-                        
-                        list_labels[x:y] = [-100] * (y-x)
-                    
+                        list_labels[x:y] = [-100] * (y - x)
+
                         if i == 0 and j == 0:
                             results.append((0, x))
 
-
             if max_seq_length and message_end_idx >= max_seq_length:
                 break
-            
+
     if modify_labels:
         labels = torch.tensor(list_labels).reshape(labels.shape)
-        
+
     attention_mask = torch.ones_like(input_ids)
     return {
         "input_ids": input_ids.flatten(),
@@ -170,9 +183,7 @@ def encode_sft_example(example, tokenizer, max_seq_length, mask_instructions=Tru
     }
 
 
-
 def main(args: ArgumentParserPlus):
-
     exp_args, model_args, data_args = args[0], args[1], args[2]
 
     exp_args.output_dir = os.path.join(exp_args.output_dir, exp_args.exp_name)
@@ -196,7 +207,7 @@ def main(args: ArgumentParserPlus):
         accelerator_log_kwargs["log_with"] = exp_args.report_to
         accelerator_log_kwargs["project_dir"] = exp_args.output_dir
 
-     # if you get timeouts (e.g. due to long tokenization) increase this.
+    # if you get timeouts (e.g. due to long tokenization) increase this.
     timeout_kwargs = InitProcessGroupKwargs(timeout=timedelta(seconds=exp_args.timeout))
     dataloader_config = DataLoaderConfiguration()
     dataloader_config.use_seedable_sampler = True
@@ -208,7 +219,7 @@ def main(args: ArgumentParserPlus):
         kwargs_handlers=[timeout_kwargs],
     )
 
-     # Make one log on every process with the configuration for debugging.
+    # Make one log on every process with the configuration for debugging.
     logging.basicConfig(
         format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
         datefmt="%m/%d/%Y %H:%M:%S",
@@ -222,7 +233,7 @@ def main(args: ArgumentParserPlus):
     else:
         datasets.utils.logging.set_verbosity_error()
         transformers.utils.logging.set_verbosity_error()
-    
+
     if exp_args.seed:
         set_seed(exp_args.seed)
 
@@ -243,7 +254,9 @@ def main(args: ArgumentParserPlus):
             data_args.dataset_mixer,
             configs=data_args.dataset_config_name,
             splits=["train"],
-            save_data_dir=data_args.dataset_mix_dir if accelerator.is_main_process else None,
+            save_data_dir=data_args.dataset_mix_dir
+            if accelerator.is_main_process
+            else None,
             columns_to_keep=["messages"],
         )
     elif data_args.dataset_mixer_list:
@@ -251,7 +264,9 @@ def main(args: ArgumentParserPlus):
             data_args.dataset_mixer_list,
             configs=data_args.dataset_config_name,
             splits=["train"],
-            save_data_dir=data_args.dataset_mix_dir if accelerator.is_main_process else None,
+            save_data_dir=data_args.dataset_mix_dir
+            if accelerator.is_main_process
+            else None,
             columns_to_keep=["messages"],
         )
     else:
@@ -265,7 +280,6 @@ def main(args: ArgumentParserPlus):
             **dataset_args,
         )
 
-    
     # load pretrained model and tokenizer
     if model_args.config_name:
         config = AutoConfig.from_pretrained(
@@ -280,10 +294,16 @@ def main(args: ArgumentParserPlus):
             trust_remote_code=model_args.trust_remote_code,
         )
     else:
-        raise ValueError("You need to specify either a model name or a model configuration name")
-    
+        raise ValueError(
+            "You need to specify either a model name or a model configuration name"
+        )
+
     # load tokenizer
-    tokenizer_revision = model_args.tokenizer_revision if model_args.tokenizer_revision else model_args.model_revision
+    tokenizer_revision = (
+        model_args.tokenizer_revision
+        if model_args.tokenizer_revision
+        else model_args.model_revision
+    )
     if tokenizer_revision != model_args.model_revision:
         # Warn user if tokenizer and model use different revisions; this is an unusual
         # use case.
@@ -327,7 +347,9 @@ def main(args: ArgumentParserPlus):
                 quantization_config=quantization_config,
                 device_map=device_map,
                 torch_dtype=torch.bfloat16,
-                attn_implementation="flash_attention_2" if exp_args.use_flash_attention else "eager",
+                attn_implementation="flash_attention_2"
+                if exp_args.use_flash_attention
+                else "eager",
             )
         else:
             model = AutoModelForCausalLM.from_pretrained(
@@ -336,15 +358,19 @@ def main(args: ArgumentParserPlus):
                 from_tf=bool(".ckpt" in model_args.model_name_or_path),
                 config=config,
                 trust_remote_code=model_args.trust_remote_code,
-                attn_implementation="flash_attention_2" if exp_args.use_flash_attention else "eager",
+                attn_implementation="flash_attention_2"
+                if exp_args.use_flash_attention
+                else "eager",
             )
     else:
         logger.info("Training from scratch, no weights or quantization needed")
         model = AutoModelForCausalLM.from_config(config)
-    
+
     # no default pad token for llama!
     # here we add all special tokens again, because the default ones are not in the special_tokens_map
-    if isinstance(tokenizer, LlamaTokenizer) or isinstance(tokenizer, LlamaTokenizerFast):
+    if isinstance(tokenizer, LlamaTokenizer) or isinstance(
+        tokenizer, LlamaTokenizerFast
+    ):
         num_added_tokens = tokenizer.add_special_tokens(
             {
                 "bos_token": "<s>",
@@ -353,17 +379,18 @@ def main(args: ArgumentParserPlus):
                 "pad_token": "<pad>",
             }
         )
-        assert num_added_tokens in [
-            0,
-            1,
-        ], "LlamaTokenizer should only add one special token - the pad_token, or no tokens if pad token present."
+        assert (
+            num_added_tokens
+            in [
+                0,
+                1,
+            ]
+        ), "LlamaTokenizer should only add one special token - the pad_token, or no tokens if pad token present."
     elif isinstance(tokenizer, GPTNeoXTokenizerFast):
         # OLMo newer models use this tokenizer
         if tokenizer.bos_token is None:
             tokenizer.bos_token = tokenizer.eos_token
-            assert (
-                model_args.add_bos_token
-            ), "For OLMo with GPTNeoX, you must add bos token to the beginning of the input sequence."
+            assert model_args.add_bos_token, "For OLMo with GPTNeoX, you must add bos token to the beginning of the input sequence."
         # else, pythia / other models
         else:
             num_added_tokens = tokenizer.add_special_tokens(
@@ -371,12 +398,19 @@ def main(args: ArgumentParserPlus):
                     "pad_token": "<pad>",
                 }
             )
-            assert num_added_tokens == 1, "GPTNeoXTokenizer should only add one special token - the pad_token."
+            assert (
+                num_added_tokens == 1
+            ), "GPTNeoXTokenizer should only add one special token - the pad_token."
     elif isinstance(tokenizer, GPT2Tokenizer) and isinstance(model, OPTForCausalLM):
         num_added_tokens = tokenizer.add_special_tokens({"unk_token": "<unk>"})
-    elif isinstance(tokenizer, transformers.PreTrainedTokenizerFast) and tokenizer.pad_token is None:
+    elif (
+        isinstance(tokenizer, transformers.PreTrainedTokenizerFast)
+        and tokenizer.pad_token is None
+    ):
         num_added_tokens = tokenizer.add_special_tokens({"pad_token": "<pad>"})
-        assert num_added_tokens == 1, "We detected no padding token but add_special_tokens did not add one."
+        assert (
+            num_added_tokens == 1
+        ), "We detected no padding token but add_special_tokens did not add one."
 
     # We resize the embeddings only when necessary to avoid index errors. If you are creating a model from scratch
     # on a small vocab and want a smaller embedding size, remove this test.
@@ -385,7 +419,7 @@ def main(args: ArgumentParserPlus):
     with deepspeed.zero.GatheredParameters(embeddings.weight, modifier_rank=None):
         embedding_size = embeddings.weight.shape[0]
 
-     # resize does its own gather
+    # resize does its own gather
     if len(tokenizer) > embedding_size:
         # pad to multiple for tensor cores.
         model.resize_token_embeddings(len(tokenizer), pad_to_multiple_of=8)
@@ -401,23 +435,30 @@ def main(args: ArgumentParserPlus):
         tokenizer.chat_template = CHAT_TEMPLATES[data_args.chat_template_name]
     else:
         try:
-            tokenizer.chat_template = AutoTokenizer.from_pretrained(data_args.chat_template_name).chat_template
+            tokenizer.chat_template = AutoTokenizer.from_pretrained(
+                data_args.chat_template_name
+            ).chat_template
         except Exception:
-            raise ValueError(f"Could not find chat template for {data_args.chat_template_name}.")
-    
+            raise ValueError(
+                f"Could not find chat template for {data_args.chat_template_name}."
+            )
+
     if model_args.add_bos_token:
         if tokenizer.chat_template.startswith("{{ bos_token }}") or (
-            tokenizer.add_bos_token is not None and tokenizer.chat_template.startswith(tokenizer.bos_token)
+            tokenizer.add_bos_token is not None
+            and tokenizer.chat_template.startswith(tokenizer.bos_token)
         ):
             raise ValueError(
                 "You specified add_bos=True, but the chat template already has a bos_token at the beginning."
             )
         # also add bos in the chat template if not already there
         tokenizer.chat_template = "{{ bos_token }}" + tokenizer.chat_template
-    
+
     if model_args.use_lora:
         if model_args.use_qlora:
-            model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=model_args.gradient_checkpointing)
+            model = prepare_model_for_kbit_training(
+                model, use_gradient_checkpointing=model_args.gradient_checkpointing
+            )
 
         logger.info("Initializing LORA model...")
         peft_config = LoraConfig(
@@ -426,44 +467,65 @@ def main(args: ArgumentParserPlus):
             r=model_args.lora_rank,
             lora_alpha=model_args.lora_alpha,
             lora_dropout=model_args.lora_dropout,
-            target_modules=["q_proj", "o_proj", "v_proj", "k_proj", "gate_proj", "up_proj", "down_proj"],
+            target_modules=[
+                "q_proj",
+                "o_proj",
+                "v_proj",
+                "k_proj",
+                "gate_proj",
+                "up_proj",
+                "down_proj",
+            ],
         )
         model = get_peft_model(model, peft_config)
         model.print_trainable_parameters()
     elif model_args.gradient_checkpointing:
         model.gradient_checkpointing_enable()
-    
+
     train_dataset = dataset["train"]
     # debugging tool for fewer samples
     if data_args.max_train_samples is not None:
         max_train_samples = min(len(train_dataset), data_args.max_train_samples)
-        logger.info(f"Limiting training samples to {max_train_samples} from {len(train_dataset)}.")
+        logger.info(
+            f"Limiting training samples to {max_train_samples} from {len(train_dataset)}."
+        )
         train_dataset = train_dataset.select(range(max_train_samples))
-    
+
     with accelerator.main_process_first():
         train_dataset = train_dataset.map(
-            functools.partial(encode_sft_example, tokenizer=tokenizer, max_seq_length=data_args.max_seq_length, mask_instructions=exp_args.mask_instructions),
+            functools.partial(
+                encode_sft_example,
+                tokenizer=tokenizer,
+                max_seq_length=data_args.max_seq_length,
+                mask_instructions=exp_args.mask_instructions,
+            ),
             batched=False,
             num_proc=data_args.preprocessing_num_workers,
             load_from_cache_file=not data_args.overwrite_cache,
             remove_columns=[
-                name for name in train_dataset.column_names if name not in ["input_ids", "labels", "attention_mask"]
+                name
+                for name in train_dataset.column_names
+                if name not in ["input_ids", "labels", "attention_mask"]
             ],
             desc="Tokenizing and reformatting instruction data",
         )
         train_dataset.set_format(type="pt")
         # remove examples with no user messages
-        train_dataset = train_dataset.filter(lambda example: (example["labels"] != -100).any())
-    
+        train_dataset = train_dataset.filter(
+            lambda example: (example["labels"] != -100).any()
+        )
+
     # Log a few random samples from the training set:
     for index in random.sample(range(len(train_dataset)), 3):
         logger.info(f"Sample {index} of the training set: {train_dataset[index]}.")
-    
+
     # DataLoaders creation:
     train_dataloader = DataLoader(
         train_dataset,
         shuffle=True,
-        collate_fn=DataCollatorForSeq2Seq(tokenizer=tokenizer, model=model, padding="longest"),
+        collate_fn=DataCollatorForSeq2Seq(
+            tokenizer=tokenizer, model=model, padding="longest"
+        ),
         batch_size=exp_args.per_device_train_batch_size,
     )
 
@@ -472,11 +534,19 @@ def main(args: ArgumentParserPlus):
     no_decay = ["bias", "layer_norm.weight"]
     optimizer_grouped_parameters = [
         {
-            "params": [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)],
+            "params": [
+                p
+                for n, p in model.named_parameters()
+                if not any(nd in n for nd in no_decay)
+            ],
             "weight_decay": exp_args.weight_decay,
         },
         {
-            "params": [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)],
+            "params": [
+                p
+                for n, p in model.named_parameters()
+                if any(nd in n for nd in no_decay)
+            ],
             "weight_decay": 0.0,
         },
     ]
@@ -490,15 +560,23 @@ def main(args: ArgumentParserPlus):
             is_paged=True,
         )
     else:
-        optimizer = torch.optim.AdamW(optimizer_grouped_parameters, lr=exp_args.learning_rate, fused=exp_args.fused_optimizer)
+        optimizer = torch.optim.AdamW(
+            optimizer_grouped_parameters,
+            lr=exp_args.learning_rate,
+            fused=exp_args.fused_optimizer,
+        )
 
     # Scheduler and math around the number of training steps.
     overrode_max_train_steps = False
-    num_update_steps_per_epoch = math.ceil(len(train_dataloader) / exp_args.gradient_accumulation_steps)
+    num_update_steps_per_epoch = math.ceil(
+        len(train_dataloader) / exp_args.gradient_accumulation_steps
+    )
     if exp_args.max_train_steps is None:
-        exp_args.max_train_steps = exp_args.num_train_epochs * num_update_steps_per_epoch
+        exp_args.max_train_steps = (
+            exp_args.num_train_epochs * num_update_steps_per_epoch
+        )
         overrode_max_train_steps = True
-    
+
     # Create the learning rate scheduler.
     # Note: the current accelerator.step() calls the .step() of the real scheduler
     # for the `num_processes` times. This is because they assume
@@ -512,7 +590,9 @@ def main(args: ArgumentParserPlus):
     # num_training_steps by num_processes so that the total number of
     # updates matches the num_training_steps.
     num_training_steps_for_scheduler = (
-        exp_args.max_train_steps if overrode_max_train_steps else exp_args.max_train_steps * accelerator.num_processes
+        exp_args.max_train_steps
+        if overrode_max_train_steps
+        else exp_args.max_train_steps * accelerator.num_processes
     )
     lr_scheduler = get_scheduler(
         name=exp_args.lr_scheduler_type,
@@ -525,13 +605,18 @@ def main(args: ArgumentParserPlus):
         model, optimizer, train_dataloader, lr_scheduler
     )
 
-
     # We need to recalculate our total training steps as the size of the training dataloader may have changed.
-    num_update_steps_per_epoch = math.ceil(len(train_dataloader) / exp_args.gradient_accumulation_steps)
+    num_update_steps_per_epoch = math.ceil(
+        len(train_dataloader) / exp_args.gradient_accumulation_steps
+    )
     if overrode_max_train_steps:
-        exp_args.max_train_steps = exp_args.num_train_epochs * num_update_steps_per_epoch
+        exp_args.max_train_steps = (
+            exp_args.num_train_epochs * num_update_steps_per_epoch
+        )
     # Afterwards we recalculate our number of training epochs
-    exp_args.num_train_epochs = math.ceil(exp_args.max_train_steps / num_update_steps_per_epoch)
+    exp_args.num_train_epochs = math.ceil(
+        exp_args.max_train_steps / num_update_steps_per_epoch
+    )
 
     # Figure out how many steps we should save the Accelerator states
     checkpointing_steps = exp_args.checkpointing_steps
@@ -560,23 +645,35 @@ def main(args: ArgumentParserPlus):
                 "wandb": {
                     "name": exp_args.run_name,
                     "entity": exp_args.wandb_entity,
-                    "tags": [exp_args.exp_name]
+                    "tags": [exp_args.exp_name],
                 }
             },
         )
         wandb_tracker = accelerator.get_tracker("wandb")
-    
+
     # Train!
-    total_batch_size = exp_args.per_device_train_batch_size * accelerator.num_processes * exp_args.gradient_accumulation_steps
+    total_batch_size = (
+        exp_args.per_device_train_batch_size
+        * accelerator.num_processes
+        * exp_args.gradient_accumulation_steps
+    )
     logger.info("***** Running training *****")
     logger.info(f"  Num examples = {len(train_dataset)}")
     logger.info(f"  Num Epochs = {exp_args.num_train_epochs}")
-    logger.info(f"  Instantaneous batch size per device = {exp_args.per_device_train_batch_size}")
-    logger.info(f"  Total train batch size (w. parallel, distributed & accumulation) = {total_batch_size}")
-    logger.info(f"  Gradient Accumulation steps = {exp_args.gradient_accumulation_steps}")
+    logger.info(
+        f"  Instantaneous batch size per device = {exp_args.per_device_train_batch_size}"
+    )
+    logger.info(
+        f"  Total train batch size (w. parallel, distributed & accumulation) = {total_batch_size}"
+    )
+    logger.info(
+        f"  Gradient Accumulation steps = {exp_args.gradient_accumulation_steps}"
+    )
     logger.info(f"  Total optimization steps = {exp_args.max_train_steps}")
     # Only show the progress bar once on each machine.
-    progress_bar = tqdm(range(exp_args.max_train_steps), disable=not accelerator.is_local_main_process)
+    progress_bar = tqdm(
+        range(exp_args.max_train_steps), disable=not accelerator.is_local_main_process
+    )
     completed_steps = 0
     starting_epoch = 0
 
@@ -595,18 +692,23 @@ def main(args: ArgumentParserPlus):
             completed_steps = starting_epoch * num_update_steps_per_epoch
         else:
             # need to multiply `gradient_accumulation_steps` to reflect real steps
-            resume_step = int(training_difference.replace("step_", "")) * exp_args.gradient_accumulation_steps
+            resume_step = (
+                int(training_difference.replace("step_", ""))
+                * exp_args.gradient_accumulation_steps
+            )
             starting_epoch = resume_step // len(train_dataloader)
             completed_steps = resume_step // exp_args.gradient_accumulation_steps
             resume_step -= starting_epoch * len(train_dataloader)
-    
+
     print(f"Starting from epoch {starting_epoch} and step {completed_steps}.")
     # update the progress_bar if load from checkpoint
     progress_bar.update(completed_steps)
 
     local_total_tokens = torch.tensor(0, dtype=torch.int64, device=accelerator.device)
-    total_token_including_padding = torch.tensor(0, dtype=torch.int64, device=accelerator.device)
-    #TODO: Count multilingual tokens
+    total_token_including_padding = torch.tensor(
+        0, dtype=torch.int64, device=accelerator.device
+    )
+    # TODO: Count multilingual tokens
 
     start_time = time.time()
 
@@ -618,7 +720,9 @@ def main(args: ArgumentParserPlus):
 
         if last_checkpoint_path and resume_step is not None:
             # We skip the first `n` batches in the dataloader when resuming from a checkpoint
-            active_dataloader = accelerator.skip_first_batches(train_dataloader, resume_step)
+            active_dataloader = accelerator.skip_first_batches(
+                train_dataloader, resume_step
+            )
         else:
             active_dataloader = train_dataloader
 
@@ -664,28 +768,37 @@ def main(args: ArgumentParserPlus):
 
                 # clip gradient norm. don't do this with deepspeed
                 if accelerator.sync_gradients and exp_args.clip_grad_norm > 0:
-                    accelerator.clip_grad_norm_(model.parameters(), exp_args.clip_grad_norm)
+                    accelerator.clip_grad_norm_(
+                        model.parameters(), exp_args.clip_grad_norm
+                    )
 
                 optimizer.step()
                 optimizer.zero_grad()
                 lr_scheduler.step()
-            
+
             if accelerator.sync_gradients:
                 progress_bar.update(1)
                 completed_steps += 1
-                if exp_args.logging_steps and completed_steps % exp_args.logging_steps == 0:
+                if (
+                    exp_args.logging_steps
+                    and completed_steps % exp_args.logging_steps == 0
+                ):
                     avg_loss = (
                         accelerator.gather(total_loss).mean().item()
                         / exp_args.gradient_accumulation_steps
                         / exp_args.logging_steps
                     )
                     total_tokens = accelerator.gather(local_total_tokens).sum().item()
-                    total_tokens_including_padding = accelerator.gather(total_token_including_padding).sum().item()
+                    total_tokens_including_padding = (
+                        accelerator.gather(total_token_including_padding).sum().item()
+                    )
                     metrics_to_log = {
                         "learning_rate": lr_scheduler.get_last_lr()[0],
                         "train_loss": avg_loss,
                         "total_tokens": total_tokens,
-                        "per_device_tps": total_tokens / accelerator.num_processes / (time.time() - start_time),
+                        "per_device_tps": total_tokens
+                        / accelerator.num_processes
+                        / (time.time() - start_time),
                         "total_tokens_including_padding": total_tokens_including_padding,
                         "per_device_tps_including_padding": total_tokens_including_padding
                         / accelerator.num_processes
@@ -722,10 +835,19 @@ def main(args: ArgumentParserPlus):
                 output_dir = os.path.join(exp_args.output_dir, output_dir)
             accelerator.save_state(output_dir)
             # use this to mark the checkpoint as completely saved, to avoid restoring from garbled checkpoints
-            with open(os.path.join(get_last_checkpoint_path(exp_args, incomplete=True), "COMPLETED"), "w") as f:
-                f.write("COMPLETED")  # annoyingly, empty files arent uploaded by beaker.
+            with open(
+                os.path.join(
+                    get_last_checkpoint_path(exp_args, incomplete=True), "COMPLETED"
+                ),
+                "w",
+            ) as f:
+                f.write(
+                    "COMPLETED"
+                )  # annoyingly, empty files arent uploaded by beaker.
             if accelerator.is_local_main_process:
-                clean_last_n_checkpoints(exp_args.output_dir, exp_args.keep_last_n_checkpoints)
+                clean_last_n_checkpoints(
+                    exp_args.output_dir, exp_args.keep_last_n_checkpoints
+                )
             accelerator.wait_for_everyone()
 
     if exp_args.output_dir is not None:

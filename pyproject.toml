@@ -21,3 +21,6 @@ torch = "^2.5.1"
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.ruff]
+extend-exclude = ["src/data/persona_generation/prompt_template.py"]

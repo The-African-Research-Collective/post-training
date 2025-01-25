@@ -18,27 +18,31 @@ from accelerate import Accelerator
 from accelerate.logging import get_logger
 from datasets import load_dataset
 from peft import LoraConfig, TaskType, get_peft_model, prepare_model_for_kbit_training
-from transformers import (AutoConfig,
-                          AutoTokenizer,
-                          BitsAndBytesConfig,
-                          AutoModelForCausalLM,
-                          LlamaTokenizer,
-                          LlamaTokenizerFast,
-                          GPTNeoXTokenizerFast,
-                          GPT2Tokenizer,
-                          DataCollatorForSeq2Seq,
-                          OPTForCausalLM,
-                          get_scheduler,)
+from transformers import (
+    AutoConfig,
+    AutoTokenizer,
+    BitsAndBytesConfig,
+    AutoModelForCausalLM,
+    LlamaTokenizer,
+    LlamaTokenizerFast,
+    GPTNeoXTokenizerFast,
+    GPT2Tokenizer,
+    DataCollatorForSeq2Seq,
+    OPTForCausalLM,
+    get_scheduler,
+)
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from utils import (ArgumentParserPlus,
-                   mix_datasets,
-                   CHAT_TEMPLATES,
-                   get_last_checkpoint_path,
-                   clean_last_n_checkpoints,
-                   upload_metadata_to_hf,
-                   push_folder_to_hub)
+from utils import (
+    ArgumentParserPlus,
+    mix_datasets,
+    CHAT_TEMPLATES,
+    get_last_checkpoint_path,
+    clean_last_n_checkpoints,
+    upload_metadata_to_hf,
+    push_folder_to_hub,
+)
 from model_utils import save_with_accelerate
 from src.training.sft_args import ExperimentArguments, ModelArguments, DatasetArguments
 
