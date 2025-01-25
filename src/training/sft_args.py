@@ -4,7 +4,7 @@ from typing import Optional, List, Union
 @dataclass
 class DatasetArguments:
     """
-    Arguments for dataset configuration.
+    Arguments for dataset configuration for supervised fine-tuning
     """
     chat_template_name: str = field(
         default=None,

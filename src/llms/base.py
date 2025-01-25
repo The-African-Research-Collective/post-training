@@ -7,7 +7,7 @@ from typing import Dict, List, Any, Optional
 
 @dataclass
 class ModelCompletion:
-    generation: Dict[str, Any]
+    generation: Dict[str, Any] | List[str]
     model: str
 
 class Generation_Models(Enum):

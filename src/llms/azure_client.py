@@ -62,8 +62,11 @@ class AzureOPENAILLM(BaseLLM):
                     temperature=temperature,
                     max_tokens=max_tokens,
                 )
-                return json.loads(response.choices[0].message.tool_calls[0].function.arguments)
-            except TypeError as e:
+
+                if tools:
+                    return json.loads(response.choices[0].message.tool_calls[0].function.arguments)
+                else:
+                    return response.choices[0].message.content
                 return {}
             except openai.BadRequestError as e:
                 return {}

@@ -58,15 +58,21 @@ class LiteLLM(BaseLLM):
                     drop_params=True
                 )
 
+
                 for model_resp in response:
                     try:
-                        if self.model_provider ==  ModelProvider.TOGETHER:
-                            completions.append(
-                                ModelCompletion(generation=json_parse_model_output(model_resp.choices[0].message.content),
-                                model=self.model_name.value))
+                        if structured_object:
+                            if self.model_provider ==  ModelProvider.TOGETHER:
+                                completions.append(
+                                    ModelCompletion(generation=json_parse_model_output(model_resp.choices[0].message.content),
+                                    model=self.model_name.value))
+                            else:
+                                completions.append(
+                                    ModelCompletion(generation=json.loads(model_resp.choices[0].message.content),
+                                    model=self.model_name.value))
                         else:
                             completions.append(
-                                ModelCompletion(generation=json.loads(model_resp.choices[0].message.content),
+                                ModelCompletion(generation=model_resp.choices[0].message.content,
                                 model=self.model_name.value))
                     except json.JSONDecodeError:
                         raise ValueError(f"Error decoding response: {model_resp.choices[0].message.content}")
@@ -82,13 +88,18 @@ class LiteLLM(BaseLLM):
                 )
 
                 try:
-                    if self.model_provider ==  ModelProvider.TOGETHER:
-                        completions.append(
-                                ModelCompletion(generation=json_parse_model_output(model_resp.choices[0].message.content),
+                    if structured_object:
+                        if self.model_provider ==  ModelProvider.TOGETHER:
+                            completions.append(
+                                    ModelCompletion(generation=json_parse_model_output(model_resp.choices[0].message.content),
+                                    model=self.model_name.value))
+                        else:
+                            completions.append(
+                                ModelCompletion(generation=json.loads(model_resp.choices[0].message.content),
                                 model=self.model_name.value))
                     else:
                         completions.append(
-                            ModelCompletion(generation=json.loads(model_resp.choices[0].message.content),
+                            ModelCompletion(generation=model_resp.choices[0].message.content,
                             model=self.model_name.value))
                 except json.JSONDecodeError:
                     raise ValueError(f"Error decoding response: {response.choices[0].message.content}")

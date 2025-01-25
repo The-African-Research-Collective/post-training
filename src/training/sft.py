@@ -47,7 +47,7 @@ from utils import (ArgumentParserPlus,
                    upload_metadata_to_hf,
                    push_folder_to_hub)
 from model_utils import save_with_accelerate
-from training_args import ExperimentArguments, ModelArguments, DatasetArguments
+from src.training.sft_args import ExperimentArguments, ModelArguments, DatasetArguments
 
 logger = get_logger(__name__)
 
