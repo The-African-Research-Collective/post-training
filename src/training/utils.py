@@ -8,7 +8,7 @@ from accelerate import Accelerator
 from tenacity import retry, stop_after_attempt, wait_fixed
 from huggingface_hub import HfApi
 from datasets import DatasetDict, concatenate_datasets, load_dataset, load_from_disk
-from dataclasses import dataclass, fields
+from dataclasses import dataclass
 from typing import List, Optional, Union, Tuple, Any, NewType
 from transformers import HfArgumentParser
 from datasets.builder import DatasetGenerationError
