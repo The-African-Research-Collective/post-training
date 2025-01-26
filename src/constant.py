@@ -7,7 +7,7 @@ TARGET_LANGUAGES = [
     "ZULU",
     "SOMALI",
     "NIGERIAN PIDGIN",
-    "ARABIC"
+    "ARABIC",
 ]
 
 
@@ -95,15 +95,14 @@ SUBDOMAINS = [
     "Natural hair care",
     "Community organizing",
     "Outdoor activities",
-   "Market analysis",
-   "Legal rights awareness",
-   "African literature (oral and written traditions)",
-   "Poetry and storytelling",
-   "Parenting advice",
-   "Artificial intelligence and machine learning",
-   "Physics",
-   "Chemistry",
+    "Market analysis",
+    "Legal rights awareness",
+    "African literature (oral and written traditions)",
+    "Poetry and storytelling",
+    "Parenting advice",
+    "Artificial intelligence and machine learning",
+    "Physics",
+    "Chemistry",
     "Biology",
     "Physical Fitness",
-
 ]

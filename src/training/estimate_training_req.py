@@ -1,8 +1,7 @@
 import argparse
+
 from transformers import AutoModel
-
-from deepspeed.runtime.zero.stage3 import estimate_zero3_model_states_mem_needs_all_live;
-
+from deepspeed.runtime.zero.stage3 import estimate_zero3_model_states_mem_needs_all_live
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -12,4 +11,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     model = AutoModel.from_pretrained(args.model_name)
-    estimate_zero3_model_states_mem_needs_all_live(model, num_gpus_per_node=args.num_gpus_per_node, num_nodes=args.num_nodes)
+    estimate_zero3_model_states_mem_needs_all_live(
+        model, num_gpus_per_node=args.num_gpus_per_node, num_nodes=args.num_nodes
+    )

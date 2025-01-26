@@ -1,14 +1,15 @@
 import os
-import uuid
 
 from enum import Enum
 from dataclasses import dataclass
 from typing import Dict, List, Any, Optional
 
+
 @dataclass
 class ModelCompletion:
-    generation: Dict[str, Any]
+    generation: Dict[str, Any] | List[str]
     model: str
+
 
 class Generation_Models(Enum):
     GPT4O = "gpt-4o-2024-08-06"
@@ -26,6 +27,7 @@ class Generation_Models(Enum):
     def __repr__(self):
         return self.value
 
+
 class ModelProvider(Enum):
     OPENAI = "openai"
     AZURE = "azure"
@@ -39,64 +41,78 @@ class ModelProvider(Enum):
 class BaseLLM:
     def __init__(self, model_name: Generation_Models, **kwargs) -> None:
         self.model_name = model_name
-    
+
     def completion(
-            self,
-            prompt: List[Dict[str, str]] | List[List[Dict[str, str]]],
-            structured_object: Any,
-            ):
+        self,
+        prompt: List[Dict[str, str]] | List[List[Dict[str, str]]],
+        structured_object: Any,
+    ):
         NotImplementedError
-    
+
     def _check_environment_variables(self):
         if self.model_provider == ModelProvider.OPENAI:
-            assert os.getenv("OPENAI_API_KEY"), \
-                "OPENAI_API_KEY environment variable not set"
+            assert os.getenv(
+                "OPENAI_API_KEY"
+            ), "OPENAI_API_KEY environment variable not set"
         elif self.model_provider == ModelProvider.ANTHROPIC:
-            assert os.getenv("ANTHROPIC_API_KEY"), \
-                "ANTHROPIC_API_KEY environment variable not set"
+            assert os.getenv(
+                "ANTHROPIC_API_KEY"
+            ), "ANTHROPIC_API_KEY environment variable not set"
         elif self.model_provider == ModelProvider.COHERE:
-            assert os.getenv("COHERE_API_KEY"), \
-                "COHERE_API_KEY environment variable not set"
+            assert os.getenv(
+                "COHERE_API_KEY"
+            ), "COHERE_API_KEY environment variable not set"
         elif self.model_provider == ModelProvider.AZURE:
-            assert os.getenv("AZURE_API_KEY"), \
-                "AZURE_API_KEY environment variable not set"
-            assert os.getenv("AZURE_API_BASE"), \
-                "AZURE_API_BASE environment variable not set"
+            assert os.getenv(
+                "AZURE_API_KEY"
+            ), "AZURE_API_KEY environment variable not set"
+            assert os.getenv(
+                "AZURE_API_BASE"
+            ), "AZURE_API_BASE environment variable not set"
         elif self.model_provider == ModelProvider.TGI:
-            assert os.getenv("TGI_ENDPOINT"), \
-                "TGI_ENDPOINT environment variable not set"
+            assert os.getenv(
+                "TGI_ENDPOINT"
+            ), "TGI_ENDPOINT environment variable not set"
         elif self.model_provider == ModelProvider.TOGETHER:
-            assert os.getenv("TOGETHERAI_API_KEY"), \
-                "TOGETHERAI_API_KEY environment variable not set"
+            assert os.getenv(
+                "TOGETHERAI_API_KEY"
+            ), "TOGETHERAI_API_KEY environment variable not set"
         elif self.model_provider == ModelProvider.MOCK:
             pass
         else:
             raise ValueError("Model provider not supported")
 
+
 class MockLLM(BaseLLM):
-    def __init__(self,
-                 model_name: Generation_Models  = Generation_Models.MOCK,
-                 model_provider: ModelProvider = ModelProvider.MOCK) -> None:
+    def __init__(
+        self,
+        model_name: Generation_Models = Generation_Models.MOCK,
+        model_provider: ModelProvider = ModelProvider.MOCK,
+    ) -> None:
         super().__init__(model_name)
 
     def completion(
-            self,
-            prompt: List[Dict[str, str]] | List[List[Dict[str, str]]],
-            structured_object: Optional[Any] = None,
-            ) -> List[ModelCompletion]:
-        
+        self,
+        prompt: List[Dict[str, str]] | List[List[Dict[str, str]]],
+        structured_object: Optional[Any] = None,
+    ) -> List[ModelCompletion]:
         assert isinstance(prompt, list), "Prompt must be a list"
-        assert isinstance(prompt[0], dict) or isinstance(prompt[0], list), \
-            "Prompt must be a list of dictionaries or a list of lists of dictionaries"
-        
+        assert isinstance(prompt[0], dict) or isinstance(
+            prompt[0], list
+        ), "Prompt must be a list of dictionaries or a list of lists of dictionaries"
+
         return [
-            ModelCompletion(generation={"text": "Mock completion"}, model=self.model_name)
+            ModelCompletion(
+                generation={"text": "Mock completion"}, model=self.model_name
+            )
         ]
+
 
 def _test():
     mock_llm = MockLLM()
-    completions = mock_llm.completion(prompt = [{"text": "Hello"}])
+    completions = mock_llm.completion(prompt=[{"text": "Hello"}])
     print(completions)
+
 
 if __name__ == "__main__":
     _test()

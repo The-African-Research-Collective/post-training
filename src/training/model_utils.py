@@ -21,7 +21,10 @@ def save_with_accelerate(
     # we usually do greedy decoding for generation, so this should be okay.
     # otherwise, we get an error thrown at save time.
     model.generation_config = transformers.GenerationConfig(
-        temperature=None, top_p=None, eos_token_id=tokenizer.eos_token_id, bos_token_id=tokenizer.bos_token_id
+        temperature=None,
+        top_p=None,
+        eos_token_id=tokenizer.eos_token_id,
+        bos_token_id=tokenizer.bos_token_id,
     )
 
     unwrapped_model: PreTrainedModel = accelerator.unwrap_model(model)

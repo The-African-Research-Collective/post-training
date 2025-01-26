@@ -8,7 +8,7 @@ from accelerate import Accelerator
 from tenacity import retry, stop_after_attempt, wait_fixed
 from huggingface_hub import HfApi
 from datasets import DatasetDict, concatenate_datasets, load_dataset, load_from_disk
-from dataclasses import dataclass, fields
+from dataclasses import dataclass
 from typing import List, Optional, Union, Tuple, Any, NewType
 from transformers import HfArgumentParser
 from datasets.builder import DatasetGenerationError
@@ -19,7 +19,9 @@ logger = get_logger(__name__)
 
 
 class ArgumentParserPlus(HfArgumentParser):
-    def parse_yaml_and_args(self, yaml_arg: str, other_args: Optional[List[str]] = None) -> List[dataclass]:
+    def parse_yaml_and_args(
+        self, yaml_arg: str, other_args: Optional[List[str]] = None
+    ) -> List[dataclass]:
         """
         Parse a YAML file and overwrite the default/loaded values with the values provided to the command line.
 
@@ -36,7 +38,9 @@ class ArgumentParserPlus(HfArgumentParser):
 
         outputs = []
         # strip other args list into dict of key-value pairs
-        other_args = {arg.split("=")[0].strip("-"): arg.split("=")[1] for arg in other_args}
+        other_args = {
+            arg.split("=")[0].strip("-"): arg.split("=")[1] for arg in other_args
+        }
         used_args = {}
 
         # overwrite the default/loaded value with the value provided to the command line
@@ -69,7 +73,9 @@ class ArgumentParserPlus(HfArgumentParser):
                     if arg not in used_args:
                         used_args[arg] = val
                     else:
-                        raise ValueError(f"Duplicate argument provided: {arg}, may cause unexpected behavior")
+                        raise ValueError(
+                            f"Duplicate argument provided: {arg}, may cause unexpected behavior"
+                        )
 
             obj = data_class(**inputs)
             outputs.append(obj)
@@ -83,7 +89,9 @@ class ArgumentParserPlus(HfArgumentParser):
             output = self.parse_yaml_file(os.path.abspath(sys.argv[1]))
         # parse command line args and yaml file
         elif len(sys.argv) > 2 and sys.argv[1].endswith(".yaml"):
-            output = self.parse_yaml_and_args(os.path.abspath(sys.argv[1]), sys.argv[2:])
+            output = self.parse_yaml_and_args(
+                os.path.abspath(sys.argv[1]), sys.argv[2:]
+            )
         # parse command line args only
         else:
             output = self.parse_args_into_dataclasses()
@@ -91,6 +99,7 @@ class ArgumentParserPlus(HfArgumentParser):
         if len(output) == 1:
             output = output[0]
         return output
+
 
 # functions for handling different formats of messages
 def convert_alpaca_gpt4_to_messages(example):
@@ -113,6 +122,7 @@ def convert_alpaca_gpt4_to_messages(example):
     example["messages"] = messages
     return example
 
+
 def convert_codefeedback_single_turn_to_messages(example):
     """
     Convert a query-answer pair to a list of messages.
@@ -123,6 +133,7 @@ def convert_codefeedback_single_turn_to_messages(example):
     ]
     example["messages"] = messages
     return example
+
 
 def convert_metamath_qa_to_messages(example):
     """
@@ -135,6 +146,7 @@ def convert_metamath_qa_to_messages(example):
     example["messages"] = messages
     return example
 
+
 def convert_code_alpaca_to_messages(example):
     """
     Convert a prompt-completion pair to a list of messages.
@@ -145,6 +157,7 @@ def convert_code_alpaca_to_messages(example):
     ]
     example["messages"] = messages
     return example
+
 
 def convert_open_orca_to_messages(example):
     """
@@ -177,7 +190,10 @@ def conversations_to_messages(example):
         "User": "user",
         "human": "user",
     }
-    messages = [{"role": name_mapping[conv["from"]], "content": conv["value"]} for conv in example["conversations"]]
+    messages = [
+        {"role": name_mapping[conv["from"]], "content": conv["value"]}
+        for conv in example["conversations"]
+    ]
     example["messages"] = messages
     return example
 
@@ -188,6 +204,7 @@ def convert_rejection_samples_to_messages(example):
     """
     example["messages"] = example["chosen"]
     return example
+
 
 def mix_datasets(
     dataset_mixer: Union[dict, list],
@@ -200,7 +217,6 @@ def mix_datasets(
     keep_ids: bool = False,
     add_source_col: bool = False,
 ) -> DatasetDict:
-    
     """
     dataset_mixer: Union[dict, list]
         The dataset or datasets to be mixed. If a list, the datasets must be in the same order as the splits.
@@ -229,11 +245,15 @@ def mix_datasets(
         Whether to add a column to the dataset that indicates the source of the data explicitly.
     """
     if isinstance(dataset_mixer, list):
-        assert len(dataset_mixer) % 2 == 0, f"Data mixer list length is not even: {dataset_mixer}"
+        assert (
+            len(dataset_mixer) % 2 == 0
+        ), f"Data mixer list length is not even: {dataset_mixer}"
         mixer_dict = {}
         i = 0
         while i < len(dataset_mixer) - 1:
-            assert isinstance(dataset_mixer[i], str), f"Invalid type in data mixer: {dataset_mixer}"
+            assert isinstance(
+                dataset_mixer[i], str
+            ), f"Invalid type in data mixer: {dataset_mixer}"
             if "." in dataset_mixer[i + 1]:
                 value = float(dataset_mixer[i + 1])
             else:
@@ -241,13 +261,15 @@ def mix_datasets(
             mixer_dict[dataset_mixer[i]] = value
             i += 2
         dataset_mixer = mixer_dict
-    
+
     splits = ["train", "test"] if splits is None else splits
     configs = [None] * len(dataset_mixer) if not configs else configs
     columns_to_keep = [] if columns_to_keep is None else columns_to_keep
 
     if configs is not None and len(configs) != len(dataset_mixer):
-        raise ValueError("The number of given dataset config names must be the same as the given number of datasets.")
+        raise ValueError(
+            "The number of given dataset config names must be the same as the given number of datasets."
+        )
 
     # print save location
     if save_data_dir:
@@ -278,7 +300,9 @@ def mix_datasets(
             # assert that needed columns are present
             if need_columns:
                 if not all(col in dataset.column_names for col in need_columns):
-                    raise ValueError(f"Needed column {need_columns} not found in dataset {dataset.column_names}.")
+                    raise ValueError(
+                        f"Needed column {need_columns} not found in dataset {dataset.column_names}."
+                    )
 
             # handle per-case conversions
             # if "instruction" and "output" columns are present and "messages" is not, convert to messages
@@ -294,7 +318,10 @@ def mix_datasets(
                 and "messages" not in dataset.column_names
             ):
                 dataset = dataset.map(convert_code_alpaca_to_messages, num_proc=10)
-            elif "conversations" in dataset.column_names and "messages" not in dataset.column_names:
+            elif (
+                "conversations" in dataset.column_names
+                and "messages" not in dataset.column_names
+            ):
                 dataset = dataset.map(conversations_to_messages, num_proc=10)
             elif (
                 "question" in dataset.column_names
@@ -307,7 +334,9 @@ def mix_datasets(
                 and "answer" in dataset.column_names
                 and "messages" not in dataset.column_names
             ):
-                dataset = dataset.map(convert_codefeedback_single_turn_to_messages, num_proc=10)
+                dataset = dataset.map(
+                    convert_codefeedback_single_turn_to_messages, num_proc=10
+                )
             elif (
                 "query" in dataset.column_names
                 and "response" in dataset.column_names
@@ -320,7 +349,9 @@ def mix_datasets(
                 and "reference_completion" in dataset.column_names
                 and "messages" not in dataset.column_names
             ):
-                dataset = dataset.map(convert_rejection_samples_to_messages, num_proc=10)
+                dataset = dataset.map(
+                    convert_rejection_samples_to_messages, num_proc=10
+                )
 
             # if id not in dataset, create it as ds-{index}
             if "id" not in dataset.column_names:
@@ -329,7 +360,11 @@ def mix_datasets(
 
             # Remove redundant columns to avoid schema conflicts on load
             dataset = dataset.remove_columns(
-                [col for col in dataset.column_names if col not in (columns_to_keep + ["id"])]
+                [
+                    col
+                    for col in dataset.column_names
+                    if col not in (columns_to_keep + ["id"])
+                ]
             )
 
             # if add_source_col, add that column
@@ -348,7 +383,9 @@ def mix_datasets(
             elif "test" in split:
                 raw_val_datasets.append(dataset)
             else:
-                raise ValueError(f"Split type {split} not recognized as one of test or train.")
+                raise ValueError(
+                    f"Split type {split} not recognized as one of test or train."
+                )
 
     if len(raw_val_datasets) == 0 and len(raw_train_datasets) == 0:
         raise ValueError("No datasets loaded.")
@@ -366,7 +403,9 @@ def mix_datasets(
     if any(frac_or_samples > 1 for frac_or_samples in frac_or_sample_list):
         is_count = True
         # assert that all are integers
-        if not all(isinstance(frac_or_samples, int) for frac_or_samples in frac_or_sample_list):
+        if not all(
+            isinstance(frac_or_samples, int) for frac_or_samples in frac_or_sample_list
+        ):
             raise NotImplementedError("Cannot mix fractions and counts, yet.")
     else:
         is_count = False
@@ -381,7 +420,9 @@ def mix_datasets(
             if is_count:
                 train_subset = dataset.select(range(frac_or_samples))
             else:
-                train_subset = dataset.select(range(int(frac_or_samples * len(dataset))))
+                train_subset = dataset.select(
+                    range(int(frac_or_samples * len(dataset)))
+                )
             train_subsets.append(train_subset)
 
         raw_datasets["train"] = concatenate_datasets(train_subsets)
@@ -416,8 +457,9 @@ def mix_datasets(
 
     return raw_datasets
 
+
 CHAT_TEMPLATES = {
-    "llama_3_instruct" : """{% if messages[0]['role'] == 'system' %}
+    "llama_3_instruct": """{% if messages[0]['role'] == 'system' %}
     {% set offset = 1 %}
 {% else %}
     {% set offset = 0 %}
@@ -438,6 +480,7 @@ CHAT_TEMPLATES = {
 """
 }
 
+
 # ----------------------------------------------------------------------------
 # Check pointing utilities
 def get_last_checkpoint(folder: str, incomplete: bool = False) -> Optional[str]:
@@ -452,7 +495,11 @@ def get_last_checkpoint(folder: str, incomplete: bool = False) -> Optional[str]:
     else:
         checkpoints = checkpoint_steps
     if not incomplete:
-        checkpoints = [path for path in checkpoints if os.path.exists(os.path.join(folder, path, "COMPLETED"))]
+        checkpoints = [
+            path
+            for path in checkpoints
+            if os.path.exists(os.path.join(folder, path, "COMPLETED"))
+        ]
     if len(checkpoints) == 0:
         return
     return os.path.join(folder, max(checkpoints, key=lambda x: x.split("_")[-1]))
@@ -464,16 +511,28 @@ def get_last_checkpoint_path(args, incomplete: bool = False) -> str:
     # else, start from scratch.
     # if incomplete is true, include folders without "COMPLETE" in the folder.
     last_checkpoint_path = None
-    if args.output_dir and os.path.isdir(args.output_dir) and not args.overwrite_output_dir:
-        last_checkpoint_path = get_last_checkpoint(args.output_dir, incomplete=incomplete)
+    if (
+        args.output_dir
+        and os.path.isdir(args.output_dir)
+        and not args.overwrite_output_dir
+    ):
+        last_checkpoint_path = get_last_checkpoint(
+            args.output_dir, incomplete=incomplete
+        )
         if last_checkpoint_path is None:
-            logger.warning("Output directory exists but no checkpoint found. Starting from scratch.")
+            logger.warning(
+                "Output directory exists but no checkpoint found. Starting from scratch."
+            )
     elif args.resume_from_checkpoint:
         last_checkpoint_path = args.resume_from_checkpoint
     return last_checkpoint_path
 
+
 def is_checkpoint_folder(dir: str, folder: str) -> bool:
-    return (folder.startswith("step_") or folder.startswith("epoch_")) and os.path.isdir(os.path.join(dir, folder))
+    return (
+        folder.startswith("step_") or folder.startswith("epoch_")
+    ) and os.path.isdir(os.path.join(dir, folder))
+
 
 def clean_last_n_checkpoints(output_dir: str, keep_last_n_checkpoints: int) -> None:
     # remove the last checkpoint to save space
@@ -485,6 +544,7 @@ def clean_last_n_checkpoints(output_dir: str, keep_last_n_checkpoints: int) -> N
             logger.info(f"Removing checkpoint {checkpoint}")
             shutil.rmtree(os.path.join(output_dir, checkpoint))
     logger.info("Remaining files:" + str(os.listdir(output_dir)))
+
 
 @retry(stop=stop_after_attempt(3), wait=wait_fixed(10))
 def upload_metadata_to_hf(
@@ -506,6 +566,7 @@ def upload_metadata_to_hf(
     )
     os.remove("tmp.json")
 
+
 @retry(stop=stop_after_attempt(3), wait=wait_fixed(10))
 def push_folder_to_hub(
     accelerator: Accelerator,
@@ -520,7 +581,9 @@ def push_folder_to_hub(
         if not api.repo_exists(hf_repo_id):
             api.create_repo(hf_repo_id, exist_ok=True, private=private)
         if hf_repo_revision is not None:
-            api.create_branch(repo_id=hf_repo_id, branch=hf_repo_revision, exist_ok=True)
+            api.create_branch(
+                repo_id=hf_repo_id, branch=hf_repo_revision, exist_ok=True
+            )
         api.upload_folder(
             repo_id=hf_repo_id,
             revision=hf_repo_revision,
