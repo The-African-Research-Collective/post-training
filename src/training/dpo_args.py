@@ -26,7 +26,7 @@ class DatasetArguments:
     )
     dataset_mixer_list: Optional[list[str]] = field(
         default=None,
-        metadata={"help": "A list of datasets (local or HF) to sample from."},
+        metadata={"help": "A list of datasets (local or HF) to sample from. In the form of [dataset1, num_samples1, dataset2, num_samples2, ...]"}, # noqa
     )
     dataset_mix_dir: Optional[str] = field(
         default=None,
