@@ -22,7 +22,7 @@ class DatasetArguments:
     )
     dataset_mixer: Optional[dict] = field(
         default=None,
-        metadata={"help": "A dictionary of datasets (local or HF) to sample from."},
+        metadata={"help": "A dictionary of datasets (local or HF) to sample from,. The keys are the dataset names and values are the number of samples to take from each dataset."}, # noqa
     )
     dataset_mixer_list: Optional[list[str]] = field(
         default=None,
@@ -350,7 +350,7 @@ class ExperimentArguments:
     )
     dpo_beta: float = field(
         default=0.1,
-        metadata={"help": "Beta parameter for DPO loss. Default is 0.1."},
+        metadata={"help": "Beta parameter for DPO loss. Default is 0.1."}
     )
     dpo_loss_type: str = field(
         default="dpo",
