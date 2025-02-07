@@ -81,7 +81,6 @@ def google_translate(
     try:
         translated = translator.translate(text=sentence)
     except Exception as e:
-        breakpoint()
         translated = None
     
     return translated
