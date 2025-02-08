@@ -51,7 +51,7 @@ def collapse_messages(examples) -> dict[str, list[str]]:
         "language": [examples["language"][0]],
         "messages": [[
             {"role": examples["role"][0], "content": examples["content"][0]},
-            {"role": examples["role"][1], "content": examples["content"][0]}
+            {"role": examples["role"][1], "content": examples["content"][1]}
         ]]
     }
 
@@ -137,7 +137,12 @@ def translate_sft_dataset(
             else:
                 output_dataset[key].extend(batch[key])
 
-    Dataset.from_dict(output_dataset).to_json(output_file)
+    translated_dataset = Dataset.from_dict(output_dataset)
+    (
+        translated_dataset
+        .map(collapse_messages, batch_size=2, batched=2, remove_columns=translated_dataset.column_names)
+        .to_json(output_file)
+    )
 
 
 if __name__ == "__main__":
