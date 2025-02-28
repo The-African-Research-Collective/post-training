@@ -1,0 +1,9 @@
+system: >
+  Provide a step-by-step solution to the given math problem in the language of the problem and write the final answer in a new line.
+
+  Note:
+  Ensure that all steps of your solution are written in the provided language and conclude by writing the final answer clearly on a new line.
+
+user: >
+  Math Problem: {{prompt}}
+  Language: English
