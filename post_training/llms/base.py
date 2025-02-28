@@ -1,8 +1,11 @@
+import json
 import os
-
+import re
 from enum import Enum
 from dataclasses import dataclass
 from typing import Dict, List, Any, Optional
+
+from loguru import logger
 
 
 @dataclass
@@ -51,36 +54,45 @@ class BaseLLM:
 
     def _check_environment_variables(self):
         if self.model_provider == ModelProvider.OPENAI:
-            assert os.getenv(
-                "OPENAI_API_KEY"
-            ), "OPENAI_API_KEY environment variable not set"
+            assert os.getenv("OPENAI_API_KEY"), (
+                "OPENAI_API_KEY environment variable not set"
+            )
         elif self.model_provider == ModelProvider.ANTHROPIC:
-            assert os.getenv(
-                "ANTHROPIC_API_KEY"
-            ), "ANTHROPIC_API_KEY environment variable not set"
+            assert os.getenv("ANTHROPIC_API_KEY"), (
+                "ANTHROPIC_API_KEY environment variable not set"
+            )
         elif self.model_provider == ModelProvider.COHERE:
-            assert os.getenv(
-                "COHERE_API_KEY"
-            ), "COHERE_API_KEY environment variable not set"
+            assert os.getenv("COHERE_API_KEY"), (
+                "COHERE_API_KEY environment variable not set"
+            )
         elif self.model_provider == ModelProvider.AZURE:
-            assert os.getenv(
-                "AZURE_API_KEY"
-            ), "AZURE_API_KEY environment variable not set"
-            assert os.getenv(
-                "AZURE_API_BASE"
-            ), "AZURE_API_BASE environment variable not set"
+            assert os.getenv("AZURE_API_KEY"), (
+                "AZURE_API_KEY environment variable not set"
+            )
+            assert os.getenv("AZURE_API_BASE"), (
+                "AZURE_API_BASE environment variable not set"
+            )
         elif self.model_provider == ModelProvider.TGI:
-            assert os.getenv(
-                "TGI_ENDPOINT"
-            ), "TGI_ENDPOINT environment variable not set"
+            assert os.getenv("TGI_ENDPOINT"), (
+                "TGI_ENDPOINT environment variable not set"
+            )
         elif self.model_provider == ModelProvider.TOGETHER:
-            assert os.getenv(
-                "TOGETHERAI_API_KEY"
-            ), "TOGETHERAI_API_KEY environment variable not set"
+            assert os.getenv("TOGETHERAI_API_KEY"), (
+                "TOGETHERAI_API_KEY environment variable not set"
+            )
         elif self.model_provider == ModelProvider.MOCK:
             pass
         else:
             raise ValueError("Model provider not supported")
+
+    @staticmethod
+    def _maybe_sanitize_json(json_str: str) -> str | dict[str, Any]:
+        try:
+            return json.loads(re.sub(r"```json\s*|```", "", json_str))
+        except json.JSONDecodeError:
+            logger.warning("Incorrect JSON format returned")
+            logger.debug(json_str)
+            return json_str
 
 
 class MockLLM(BaseLLM):
@@ -97,9 +109,9 @@ class MockLLM(BaseLLM):
         structured_object: Optional[Any] = None,
     ) -> List[ModelCompletion]:
         assert isinstance(prompt, list), "Prompt must be a list"
-        assert isinstance(prompt[0], dict) or isinstance(
-            prompt[0], list
-        ), "Prompt must be a list of dictionaries or a list of lists of dictionaries"
+        assert isinstance(prompt[0], dict) or isinstance(prompt[0], list), (
+            "Prompt must be a list of dictionaries or a list of lists of dictionaries"
+        )
 
         return [
             ModelCompletion(

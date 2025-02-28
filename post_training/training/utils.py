@@ -1,18 +1,18 @@
-import os
-import sys
-import json
 import dataclasses
+import os
+import json
 import shutil
-from accelerate import Accelerator
-
-from tenacity import retry, stop_after_attempt, wait_fixed
-from huggingface_hub import HfApi
-from datasets import DatasetDict, concatenate_datasets, load_dataset, load_from_disk
+import sys
 from dataclasses import dataclass
 from typing import List, Optional, Union, Tuple, Any, NewType
-from transformers import HfArgumentParser
-from datasets.builder import DatasetGenerationError
+
+from accelerate import Accelerator
 from accelerate.logging import get_logger
+from datasets import DatasetDict, concatenate_datasets, load_dataset, load_from_disk
+from datasets.builder import DatasetGenerationError
+from huggingface_hub import HfApi
+from tenacity import retry, stop_after_attempt, wait_fixed
+from transformers import HfArgumentParser
 
 DataClassType = NewType("DataClassType", Any)
 logger = get_logger(__name__)
@@ -63,7 +63,7 @@ class ArgumentParserPlus(HfArgumentParser):
                         inputs[arg] = [str(v) for v in val.split(",")]
 
                     # bool of a non-empty string is True, so we manually check for bools
-                    if base_type == bool:
+                    if base_type is bool:
                         if val in ["true", "True"]:
                             inputs[arg] = True
                         else:
@@ -245,15 +245,15 @@ def mix_datasets(
         Whether to add a column to the dataset that indicates the source of the data explicitly.
     """
     if isinstance(dataset_mixer, list):
-        assert (
-            len(dataset_mixer) % 2 == 0
-        ), f"Data mixer list length is not even: {dataset_mixer}"
+        assert len(dataset_mixer) % 2 == 0, (
+            f"Data mixer list length is not even: {dataset_mixer}"
+        )
         mixer_dict = {}
         i = 0
         while i < len(dataset_mixer) - 1:
-            assert isinstance(
-                dataset_mixer[i], str
-            ), f"Invalid type in data mixer: {dataset_mixer}"
+            assert isinstance(dataset_mixer[i], str), (
+                f"Invalid type in data mixer: {dataset_mixer}"
+            )
             if "." in dataset_mixer[i + 1]:
                 value = float(dataset_mixer[i + 1])
             else:

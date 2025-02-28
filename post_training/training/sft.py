@@ -5,26 +5,25 @@ local_main_process typically refers to the main process on a specific node/machi
 main_process (or global main process) refers to the single primary process that coordinates across all nodes in the distributed system. There is only one main_process across the entire training setup.
 """
 
+import functools
+import json
+import math
+import random
 import os
 import time
 import logging
-import datasets
-import transformers
-import torch
-import deepspeed
-import functools
-import random
-import math
-import json
-
 from datetime import timedelta
-from dataclasses import dataclass, field
-from typing import Optional, List, Union
+
+import datasets
+import deepspeed
+import torch
+import transformers
 from accelerate.utils import InitProcessGroupKwargs, set_seed, DataLoaderConfiguration
 from accelerate import Accelerator
 from accelerate.logging import get_logger
 from datasets import load_dataset
 from peft import LoraConfig, TaskType, get_peft_model, prepare_model_for_kbit_training
+from torch.utils.data import DataLoader
 from transformers import (
     AutoConfig,
     AutoTokenizer,
@@ -38,20 +37,22 @@ from transformers import (
     OPTForCausalLM,
     get_scheduler,
 )
-from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from utils import (
+from post_training.training.utils import (
     ArgumentParserPlus,
     mix_datasets,
     CHAT_TEMPLATES,
     get_last_checkpoint_path,
     clean_last_n_checkpoints,
-    upload_metadata_to_hf,
     push_folder_to_hub,
 )
-from model_utils import save_with_accelerate
-from src.training.sft_args import ExperimentArguments, ModelArguments, DatasetArguments
+from post_training.training.model_utils import save_with_accelerate
+from post_training.training.sft_args import (
+    ExperimentArguments,
+    ModelArguments,
+    DatasetArguments,
+)
 
 logger = get_logger(__name__)
 
@@ -379,18 +380,19 @@ def main(args: ArgumentParserPlus):
                 "pad_token": "<pad>",
             }
         )
-        assert (
-            num_added_tokens
-            in [
-                0,
-                1,
-            ]
-        ), "LlamaTokenizer should only add one special token - the pad_token, or no tokens if pad token present."
+        assert num_added_tokens in [
+            0,
+            1,
+        ], (
+            "LlamaTokenizer should only add one special token - the pad_token, or no tokens if pad token present."
+        )
     elif isinstance(tokenizer, GPTNeoXTokenizerFast):
         # OLMo newer models use this tokenizer
         if tokenizer.bos_token is None:
             tokenizer.bos_token = tokenizer.eos_token
-            assert model_args.add_bos_token, "For OLMo with GPTNeoX, you must add bos token to the beginning of the input sequence."
+            assert model_args.add_bos_token, (
+                "For OLMo with GPTNeoX, you must add bos token to the beginning of the input sequence."
+            )
         # else, pythia / other models
         else:
             num_added_tokens = tokenizer.add_special_tokens(
@@ -398,9 +400,9 @@ def main(args: ArgumentParserPlus):
                     "pad_token": "<pad>",
                 }
             )
-            assert (
-                num_added_tokens == 1
-            ), "GPTNeoXTokenizer should only add one special token - the pad_token."
+            assert num_added_tokens == 1, (
+                "GPTNeoXTokenizer should only add one special token - the pad_token."
+            )
     elif isinstance(tokenizer, GPT2Tokenizer) and isinstance(model, OPTForCausalLM):
         num_added_tokens = tokenizer.add_special_tokens({"unk_token": "<unk>"})
     elif (
@@ -408,9 +410,9 @@ def main(args: ArgumentParserPlus):
         and tokenizer.pad_token is None
     ):
         num_added_tokens = tokenizer.add_special_tokens({"pad_token": "<pad>"})
-        assert (
-            num_added_tokens == 1
-        ), "We detected no padding token but add_special_tokens did not add one."
+        assert num_added_tokens == 1, (
+            "We detected no padding token but add_special_tokens did not add one."
+        )
 
     # We resize the embeddings only when necessary to avoid index errors. If you are creating a model from scratch
     # on a small vocab and want a smaller embedding size, remove this test.

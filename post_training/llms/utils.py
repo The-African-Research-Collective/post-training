@@ -1,5 +1,24 @@
+import importlib
 import json
+import sys
 from typing import Any, Dict
+
+from pydantic import BaseModel
+
+
+# TODO: @theyorubayesian - Allow containers (e.g. list, dict, None)
+def get_response_format_for_model(response_structure: str) -> type[BaseModel]:
+    sys.path.insert(0, ".")
+
+    module_path, class_name = response_structure.rsplit(".", 1)
+    module = importlib.import_module(module_path)
+    response_class = getattr(module, class_name)
+
+    assert issubclass(response_class, BaseModel), (
+        f"{response_structure} if not a subclass of Pydantic BaseModel"
+    )
+
+    return response_class
 
 
 def json_parse_model_output(output: str) -> Dict[str, Any]:
