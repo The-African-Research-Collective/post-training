@@ -2,11 +2,11 @@ import re
 import json
 import argparse
 import statistics
-
+from collections import Counter, defaultdict
 from typing import Dict
+
 from datasets import Dataset, load_dataset
 from transformers import AutoTokenizer
-from collections import Counter, defaultdict
 
 
 class DatasetAnalyzer:

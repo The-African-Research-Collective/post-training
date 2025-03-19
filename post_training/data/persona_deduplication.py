@@ -1,10 +1,10 @@
 import os
 import argparse
-import jsonlines
-
 from typing import List
-from tqdm import tqdm
+
+import jsonlines
 from datasketch import MinHash, MinHashLSH
+from tqdm import tqdm
 
 
 def create_shingles(input_text: str, shingle_size: int) -> List:
@@ -13,14 +13,14 @@ def create_shingles(input_text: str, shingle_size: int) -> List:
 
     input_text = input_text.split()
 
-    l = 0
-    r = shingle_size
+    left = 0
+    right = shingle_size
 
     shingles = []
-    while r < len(input_text) + 1:
-        shingles.append(" ".join(input_text[l:r]))
-        l += 1
-        r += 1
+    while right < len(input_text) + 1:
+        shingles.append(" ".join(input_text[left:right]))
+        right += 1
+        right += 1
 
     return shingles
 
@@ -43,11 +43,12 @@ def main(args):
     for file in persona_files:
         num_lines = sum(1 for line in open(os.path.join(args.data_directory, file)))
         print(f"Processing File: {file} with {num_lines} lines")
-        with jsonlines.open(
-            os.path.join(args.data_directory, file), "r"
-        ) as reader, jsonlines.open(
-            os.path.join(args.data_directory, "deduplicated_personas.jsonl"), "a"
-        ) as writer:
+        with (
+            jsonlines.open(os.path.join(args.data_directory, file), "r") as reader,
+            jsonlines.open(
+                os.path.join(args.data_directory, "deduplicated_personas.jsonl"), "a"
+            ) as writer,
+        ):
             for i, row in tqdm(enumerate(reader), total=num_lines):
                 row["id"] = row["id"] + "#" + str(i)
 

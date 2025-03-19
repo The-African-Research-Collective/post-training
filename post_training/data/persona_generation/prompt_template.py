@@ -1,3 +1,4 @@
+# TODO: @theyorubayesian - Move prompt to yaml?
 PERSONA_GENERATION = """Generate diverse user personas from an African context based on a given piece of text, such as a Wikipedia page or a news article, focusing on individuals who might be interested in the content.
 
 - Analyze the key topics and content within the text with an emphasis on cultural, social, and economic contexts of Africa.

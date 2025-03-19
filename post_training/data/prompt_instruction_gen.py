@@ -1,29 +1,34 @@
-"""
-"""
+""" """
+
 import os
 import asyncio
 import argparse
-import jsonlines
 import random
-import pandas as pd
+from pathlib import Path
+from typing import Final, List, Optional
 
+import jsonlines
+import pandas as pd
 from tqdm import tqdm
-from typing import List, Optional
 from pydantic import BaseModel
 
-from src.data.persona_generation.prompt_template import (
+from post_training.data.persona_generation.prompt_template import (
     PROMPT_GENERATION,
     MATH_PROBLEM_GENERATION,
 )
-from src.llms.base import Generation_Models, ModelProvider
-from src.llms.litellm_client import LiteLLM
-from src.llms.azure_client import AzureOPENAILLM
-from src.llms.tgi_inference_client import TGI_client
-from src.constant import TARGET_LANGUAGES, TARGET_DOMAINS, SUBDOMAINS
+from post_training.llms.base import Generation_Models, ModelProvider
+from post_training.llms.litellm_client import LiteLLM
+from post_training.llms.azure_client import AzureOPENAILLM
+from post_training.llms.tgi_inference_client import TGI_client
+from post_training.constant import TARGET_LANGUAGES, TARGET_DOMAINS, SUBDOMAINS
 
-
-SEED_PROMPTS_FILE = "src/data/persona_generation/seed_prompts.jsonl"
-CONSTRAINTS_FILE = "src/data/persona_generation/ifeval_instructions.csv"
+PERSONA_GENERATION_DIR: Final[Path] = Path(__file__).parent
+SEED_PROMPTS_FILE: Final[str] = (
+    PERSONA_GENERATION_DIR / "seed_prompts.jsonl"
+).as_posix()
+CONSTRAINTS_FILE: Final[str] = (
+    PERSONA_GENERATION_DIR / "ifeval_instructions.csv"
+).as_posix()
 
 
 class GeneratedPrompt(BaseModel):
@@ -80,14 +85,14 @@ def _build_prompt_message(
         system_prompt = MATH_PROBLEM_GENERATION.replace(
             "{seed_language}", seed_language
         ).replace("{seed_prompt}", seed_prompt)
-        user_prompt = f"""Persona: {persona['persona']['persona']}
+        user_prompt = f"""Persona: {persona["persona"]["persona"]}
     Language: {language}"""
     else:
         system_prompt = PROMPT_GENERATION.replace(
             "{seed_language}", seed_language
         ).replace("{seed_prompt}", seed_prompt)
 
-        user_prompt = f"""Persona: {persona['persona']['persona']}
+        user_prompt = f"""Persona: {persona["persona"]["persona"]}
     Domain: {subdomain}
     Style: {target_domain}
     Language: {language}"""
@@ -125,9 +130,12 @@ async def main(args):
     else:
         processed_pages = []
 
-    with jsonlines.open(
-        f"{args.data_directory}/generated_prompts_{args.domain}.jsonl", "a"
-    ) as writer, open(file_path, "a") as f:
+    with (
+        jsonlines.open(
+            f"{args.data_directory}/generated_prompts_{args.domain}.jsonl", "a"
+        ) as writer,
+        open(file_path, "a") as f,
+    ):
         for persona in tqdm(persona_list):
             if persona["id"] in processed_pages:
                 continue

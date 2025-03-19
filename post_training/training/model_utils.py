@@ -1,11 +1,9 @@
-import torch
-import transformers
 from collections import OrderedDict
-
-from transformers import PreTrainedModel, PreTrainedTokenizer
 from typing import Optional
 
+import torch
 from accelerate import Accelerator
+from transformers import GenerationConfig, PreTrainedModel, PreTrainedTokenizer
 
 
 def save_with_accelerate(
@@ -20,7 +18,7 @@ def save_with_accelerate(
     # set the generation config to an empty setting to be safe.
     # we usually do greedy decoding for generation, so this should be okay.
     # otherwise, we get an error thrown at save time.
-    model.generation_config = transformers.GenerationConfig(
+    model.generation_config = GenerationConfig(
         temperature=None,
         top_p=None,
         eos_token_id=tokenizer.eos_token_id,

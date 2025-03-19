@@ -1,10 +1,10 @@
 [tool.poetry]
-name = "dpo-language-adaptation"
+name = "post_training"
 version = "0.1.0"
 description = ""
 authors = ["Your Name <you@example.com>"]
 readme = "README.md"
-package-mode = false
+package-mode = true
 
 [tool.poetry.dependencies]
 python = "^3.10"
@@ -18,11 +18,15 @@ transformers = "^4.47.0"
 accelerate = "^1.2.0"
 deep-translator = "^1.11.4"
 typer = "^0.15.1"
+evaluate = "^0.4.3"
+sacrebleu = "^2.5.1"
+loguru = "^0.7.3"
 
 
 [tool.poetry.group.dev.dependencies]
 ipykernel = "^6.29.5"
 ipywidgets = "^8.1.5"
+pre-commit = "^4.1.0"
 
 [build-system]
 requires = ["poetry-core"]

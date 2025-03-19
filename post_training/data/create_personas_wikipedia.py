@@ -1,27 +1,26 @@
-"""
-python3 src/data/create_personas_wura.py --batch_size 10 --language eng \
-    --model "azure_ai/newgpt4o"
-"""
+""" """
+
 import os
 import time
 import asyncio
 import argparse
+
 import jsonlines
 import tenacity
-from pydantic import BaseModel
-from datasets import load_dataset
-from tqdm import tqdm
 from dotenv import load_dotenv
+from datasets import load_dataset
+from pydantic import BaseModel
+from tqdm import tqdm
 
-from src.data.persona_generation.prompt_template import PERSONA_GENERATION
-from src.llms.base import Generation_Models, ModelProvider
-from src.llms.litellm_client import LiteLLM
-from src.llms.azure_client import AzureOPENAILLM
-from src.llms.tgi_inference_client import TGI_client
+from post_training.data.persona_generation.prompt_template import PERSONA_GENERATION
+from post_training.llms.azure_client import AzureOPENAILLM
+from post_training.llms.base import Generation_Models, ModelProvider
+from post_training.llms.litellm_client import LiteLLM
+from post_training.llms.tgi_inference_client import TGI_client
 
 load_dotenv()
 
-DATASET_NAME = "castorini/wura"
+DATASET_NAME = "wikimedia/wikipedia"
 
 
 class Persona(BaseModel):
@@ -36,7 +35,7 @@ class PersonaList(BaseModel):
 
 def prompt_processor(example):
     # get the first 200 words of the text
-    text = example["content"].split()[:200]
+    text = example["text"].split()[:200]
     text = " ".join(text)
     prompt = [
         {
@@ -61,7 +60,7 @@ def batch_dataset_generator(dataset, batch_size):
 
 
 async def main(args):
-    dataset = load_dataset(DATASET_NAME, f"{args.language}")
+    dataset = load_dataset(DATASET_NAME, f"20231101.{args.language}")
 
     if args.model == Generation_Models.AZURE_GPT4O:
         llm = AzureOPENAILLM(model_name=args.model)
@@ -80,18 +79,19 @@ async def main(args):
         processed_pages = []
 
     # filter dataset to pages that have more than 1000 words
-    dataset = dataset.filter(
-        lambda x: len(x["content"].split()) > 100 if x["content"] else False
-    )
+    dataset = dataset.filter(lambda x: len(x["text"].split()) > 100)
     print(f"Processing {len(dataset['train'])} pages")
 
     # Remove pages that have already been processed
     dataset = dataset.filter(lambda x: str(x["id"]) not in set(processed_pages))
     print(f"Processing {len(dataset['train'])} pages")
 
-    with jsonlines.open(
-        f"{args.data_directory}/{args.language}_personas.jsonl", "a"
-    ) as writer, open(file_path, "a") as f:
+    with (
+        jsonlines.open(
+            f"{args.data_directory}/{args.language}_personas.jsonl", "a"
+        ) as writer,
+        open(file_path, "a") as f,
+    ):
         # iterate over the dataset and use multiprocessing to generate personas
 
         for i, batch in tqdm(
@@ -130,7 +130,9 @@ async def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data_directory", type=str, default="files/wura_personas")
+    parser.add_argument(
+        "--data_directory", type=str, default="files/wikipedia_personas"
+    )
     parser.add_argument("--language", type=str)
     parser.add_argument("--batch_size", type=int, default=10)
     parser.add_argument(

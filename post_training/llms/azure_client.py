@@ -1,20 +1,25 @@
-import os
-import json
-import openai
 import asyncio
-
-from typing import Any, Dict, List, Optional
+import os
+from functools import partial
+from typing import Any, Dict, List
 from dotenv import load_dotenv
 from concurrent.futures import ThreadPoolExecutor
 
-
+import openai
+from openai import AzureOpenAI
+from pydantic import BaseModel
 from tenacity import (
     retry,
     stop_after_attempt,
     wait_fixed,
 )
-from openai import AzureOpenAI
-from src.llms.base import BaseLLM, ModelCompletion, Generation_Models, ModelProvider
+
+from post_training.llms.base import (
+    BaseLLM,
+    ModelCompletion,
+    Generation_Models,
+    ModelProvider,
+)
 
 load_dotenv()
 
@@ -22,6 +27,7 @@ load_dotenv()
 class AzureOPENAILLM(BaseLLM):
     def __init__(
         self,
+        deployment_name: str,
         model_name: Generation_Models = Generation_Models.AZURE_GPT4O,
         model_provider: ModelProvider = ModelProvider.AZURE,
     ):
@@ -35,42 +41,40 @@ class AzureOPENAILLM(BaseLLM):
             api_version=os.getenv("AZURE_API_VERSION"),
         )
 
+        self.deployment_name = deployment_name
+
     @retry(wait=wait_fixed(10), stop=stop_after_attempt(3))
     async def completion(
         self,
         prompt: List[Dict[str, str]] | List[List[Dict[str, str]]],
-        structured_object: Optional[Any] = None,
+        structured_object: BaseModel | None = None,
         **generation_kwargs: Any,
     ) -> List[ModelCompletion]:
         """
         Generate completions for the given prompt using the model.
         """
         temperature = generation_kwargs.get("temperature", 1.0)
-        max_tokens = generation_kwargs.get("max_tokens", 512)
+        max_tokens = generation_kwargs.get("max_tokens", 1024)
 
-        if structured_object:
-            tools = [openai.pydantic_function_tool(structured_object)]
+        if structured_object is not None:
+            chat_func = partial(
+                self.client.beta.chat.completions.parse,
+                response_format=structured_object,
+            )
         else:
-            tools = None
+            chat_func = self.client.chat.completions.create
 
-        def llm_inference(message: List[Dict[str, str]]):
+        def llm_inference(message: List[Dict[str, str]]) -> dict[str, Any]:
             try:
-                response = self.client.chat.completions.create(
-                    model="newgpt4o",
+                response = chat_func(
+                    model=self.deployment_name,
                     messages=message,
-                    tools=tools,
                     temperature=temperature,
                     max_tokens=max_tokens,
                 )
-
-                if tools:
-                    return json.loads(
-                        response.choices[0].message.tool_calls[0].function.arguments
-                    )
-                else:
-                    return response.choices[0].message.content
-                return {}
-            except openai.BadRequestError:
+                return self._maybe_sanitize_json(response.choices[0].message.content)
+            except openai.BadRequestError as e:
+                print("Bad Request Error", e)
                 return {}
 
         completions = []

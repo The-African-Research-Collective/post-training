@@ -1,5 +1,5 @@
-"""
-"""
+""" """
+
 import os
 import json
 import time
@@ -13,11 +13,13 @@ from tqdm import tqdm
 from dotenv import load_dotenv
 from pydantic import BaseModel
 
-from src.data.persona_generation.prompt_template import PERSONA_2_PERSONA_GENERATION
-from src.llms.base import Generation_Models, ModelProvider
-from src.llms.litellm_client import LiteLLM
-from src.llms.azure_client import AzureOPENAILLM
-from src.llms.tgi_inference_client import TGI_client
+from post_training.data.persona_generation.prompt_template import (
+    PERSONA_2_PERSONA_GENERATION,
+)
+from post_training.llms.base import Generation_Models, ModelProvider
+from post_training.llms.litellm_client import LiteLLM
+from post_training.llms.azure_client import AzureOPENAILLM
+from post_training.llms.tgi_inference_client import TGI_client
 
 load_dotenv()
 
@@ -96,9 +98,13 @@ async def main(args):
     # Filter out processed pages
     dataset = [row for row in dataset if row["id"] not in processed_pages]
 
-    with jsonlines.open(
-        f"{args.data_directory}/persona_2_persona/{args.language}_personas.jsonl", "a"
-    ) as writer, open(file_path, "a") as f:
+    with (
+        jsonlines.open(
+            f"{args.data_directory}/persona_2_persona/{args.language}_personas.jsonl",
+            "a",
+        ) as writer,
+        open(file_path, "a") as f,
+    ):
         for i, batch in tqdm(
             enumerate(batch_dataset_generator(dataset, args.batch_size, args.model)),
             total=len(dataset) // args.batch_size,

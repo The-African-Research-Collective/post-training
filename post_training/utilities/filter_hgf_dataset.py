@@ -5,7 +5,9 @@ python3 filter.py --language_code amh eng ewe fra hau ibo kin lin lug orm sna so
 
 python3 filter.py --language_code  YO_NG SW_KE AR_XY --subjects elementary_mathematics abstract_algebra high_school_mathematics --splits test  --source_dataset openai/MMMLU --filter_column Subject --target_dataset taresco/OPENAI-MMLU-FILTERED-MATH
 """
+
 import argparse
+
 from datasets import load_dataset
 
 

@@ -1,0 +1,26 @@
+Instruction Group,Instruction,Description
+Keywords,Include Keywords,"Include keywords {keyword1},  {keyword2} in your response"
+Keywords,Keyword Frequency,"In your response,  the word word should appear {N} times."
+Keywords,Forbidden Words,Do not include keywords {forbidden words} in the response.
+Keywords,Letter Frequency,"In your response,  the letter {letter} should appear {N} times."
+Language,Response Language,"Your ENTIRE response should be in {language},  no other language is allowed."
+Length Constraints,Number Paragraphs,Your response should contain {N} paragraphs. You separate paragraphs using the markdown divider: * * *
+Length Constraints,Number Words,Answer with at least / around / at most {N} words.
+Length Constraints,Number Sentences,Answer with at least / around / at most {N} sentences.
+Length Constraints,Number Paragraphs + First Word in i-th Paragraph,There should be {N} paragraphs. Paragraphs and only paragraphs are separated with each other by two line breaks. The {i}-th paragraph must start with word {first.word}.
+Detectable Content,Postscript,"At the end of your response,  please explicitly add a postscript starting with {postscript marker}."
+Detectable Content,Number Placeholder,"The response must contain at least {N} placeholders represented by square brackets,  such as [address]."
+Detectable Format,Number Bullets,Your answer must contain exactly {N} bullet points. Use the markdown bullet points such as: * This is a point.
+Detectable Format,Title,"Your answer must contain a title,  wrapped in double angular brackets,  such as <<poem of joy>>."
+Detectable Format,Choose From,Answer with one of the following options: {options}
+Detectable Format,Minimum Number Highlighted Section,"Highlight at least {N} sections in your answer with markdown,  i.e. *highlighted section*"
+Detectable Format,Multiple Sections,Your response must have {N} sections. Mark the beginning of each section with {section.splitter} X.
+Detectable Format,JSON Format,Entire output should be wrapped in JSON format.
+Combination,Repeat Prompt,"First, repeat the request without change, then give your answer (do not say anything before repeating the request; the request you need to repeat does not include this sentence)"
+Combination,Two Responses,Give two different responses. Responses and only responses should be separated by asterisk symbols: *****
+Change Cases,All Uppercase,"Your entire response should be in English,  and in all lowercase letters. No capital letters are allowed."
+Change Cases,All Lowercase,"Your entire response should be in English,  and in all lowercase letters. No capital letters are allowed."
+Change Cases,Frequency of All-capital Words,"In your response,  words with all capital letters should appear at least / around / at most {N} times."
+Start with/End with,End Checker,Finish your response with this exact phrase {end.phrase}. No other words should follow this phrase.
+Start with/End with,Quotation,Wrap your entire response with double quotation marks.
+Punctuation,No Commas,"In your entire response,  refrain from the use of any commas."
