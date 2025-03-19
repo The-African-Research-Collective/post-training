@@ -6,9 +6,12 @@ system: >
   Note:
   - Ensure that all steps of your solution are written in the provided language.
   - Respond in the JSON format that the user requests.
+  - Ensure that "final_answer" is a float or int. Otherwise, set it to None.
 
 user: >
     Math Problem: {{content}}
     Language: English
 
-    Provide your answer in a JSON of format {"is_valid_question": <BOOL>, "reasoning": <OPTIONAL>, "final_answer": <OPTIONAL>}
+    Provide your answer in a JSON of format {"is_valid_question": <BOOL>, "reasoning": <OPTIONAL>, "final_answer": None|float|int}
+
+    Remember: If the question cannot be solved for a numerical answer, you must return None as the final answer.
