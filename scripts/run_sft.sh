@@ -1,19 +1,25 @@
 
 CONFIG=$1
 NUM_GPUS=$2
-BATCH_SIZE_PER_GPU=1
-TOTAL_BATCH_SIZE=128
-GRADIENT_ACC_STEPS=$(($TOTAL_BATCH_SIZE/$NUM_GPUS/$BATCH_SIZE_PER_GPU))
+TRAINING_PRECISION=$3
 
-echo "Training model using $NUM_GPUS GPUs, $BATCH_SIZE_PER_GPU batch size per GPU, $GRADIENT_ACC_STEPS gradient accumulation steps"
+echo "Training model using $NUM_GPUS GPUs"
 
 export CUDA_VISIBLE_DEVICES=0,1,2,3,5,6,7
 
+# Check that precision exists among the available list of options ("fp32", "bf16", "fp16")
+if [[ $TRAINING_PRECISION != "fp32" && $TRAINING_PRECISION != "bf16" && $TRAINING_PRECISION != "fp16" ]]; then
+    echo "Invalid training precision. Please choose from 'fp32', 'bf16', or 'fp16'."
+    exit 1
+fi
+
+
+
 
 accelerate launch \
-    --mixed_precision bf16 \
+    --mixed_precision $TRAINING_PRECISION \
     --num_machines 1 \
     --num_processes $NUM_GPUS \
     --use_deepspeed \
     --deepspeed_config_file configs/deep_speed/stage3_no_offloading_accelerate.conf \
-    src/training/sft.py $CONFIG
+    post_training/training/sft.py $CONFIG
