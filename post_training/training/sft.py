@@ -152,10 +152,7 @@ def encode_sft_example(example, tokenizer, max_seq_length, mask_instructions=Tru
             # https://pytorch.org/docs/stable/generated/torch.nn.CrossEntropyLoss.html
 
             if mask_instructions:
-                print(labels[:, message_start_idx:message_end_idx])
                 labels[:, message_start_idx:message_end_idx] = -100
-                print(labels)
-                print(labels[:, message_start_idx:message_end_idx])
             else:
                 # Set special tokens to -100
                 # TODO: This is very hacky, we should find a better way to do this

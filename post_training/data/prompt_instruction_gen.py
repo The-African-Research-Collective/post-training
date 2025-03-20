@@ -6,6 +6,7 @@ import argparse
 import random
 from pathlib import Path
 from typing import Final, List, Optional
+from datetime import datetime
 
 import jsonlines
 import pandas as pd
@@ -18,7 +19,7 @@ from post_training.data.persona_generation.prompt_template import (
 )
 from post_training.llms.base import Generation_Models, ModelProvider
 from post_training.llms.litellm_client import LiteLLM
-from post_training.llms.azure_client import AzureOPENAILLM
+from post_training.llms.azure_client import AzureOPENAILLM, AzureOldDeployments
 from post_training.llms.tgi_inference_client import TGI_client
 from post_training.constant import TARGET_LANGUAGES, TARGET_DOMAINS, SUBDOMAINS
 
@@ -115,7 +116,18 @@ async def main(args):
     ]
 
     if args.model == Generation_Models.AZURE_GPT4O:
-        llm = AzureOPENAILLM(model_name=args.model)
+        # Check if model deployment data is provided and earlier than "2024-08-01"  or not
+        if args.azure_deployment_date and datetime.strptime(
+            args.azure_deployment_date, "%Y-%m-%d"
+        ) < datetime.strptime("2024-08-01", "%Y-%m-%d"):
+            llm = AzureOldDeployments(
+                deployment_name=args.azure_deployment_name,
+                model_name=args.azure_deployment_date,
+            )
+        else:
+            llm = AzureOPENAILLM(
+                deployment_name=args.azure_deployment_name, model_name=args.model
+            )
     elif args.model in [Generation_Models.TGI_GEMINI_9B]:
         llm = TGI_client(model_name=args.model, model_provider=args.model_provider)
     else:
@@ -211,5 +223,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--persona_file", type=str, help="Persona file")
     parser.add_argument("--data_directory", type=str, default="files/prompts")
+    parser.add_argument("--azure_deployment_name", type=str, required=False)
+    parser.add_argument("--azure_deployment_date", type=str, required=False)
     args = parser.parse_args()
     asyncio.run(main(args))
