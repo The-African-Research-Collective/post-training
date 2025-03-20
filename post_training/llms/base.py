@@ -19,7 +19,7 @@ class Generation_Models(Enum):
     GPT4O_MINI = "gpt-4o-mini-2024-07-18"
     CLAUDE_SONNET = "claude-3-5-sonnet-20240620"
     CLAUDE_HAIKU = "claude-3-haiku-20240307"
-    AZURE_GPT4O = "azure_ai/newgpt4o"
+    AZURE_GPT4O = "gpt-4o"  # "azure_ai/newgpt4o" #2024-02-15-preview
     TGI_GEMINI_9B = "gemma-2-9b-it"
     TOGETHER_LLAMA70B = "together_ai/meta-llama/Llama-3-70b-chat-hf"
     TOGETHER_GEMMA27B = "together_ai/google/gemma-2-27b-it"

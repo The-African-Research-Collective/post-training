@@ -1,7 +1,8 @@
 import asyncio
 import os
+import json
 from functools import partial
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 from dotenv import load_dotenv
 from concurrent.futures import ThreadPoolExecutor
 
@@ -84,6 +85,71 @@ class AzureOPENAILLM(BaseLLM):
                 response = future.result()
                 completions.append(
                     ModelCompletion(generation=response, model=self.model_name.value)
+                )
+
+        return completions
+
+
+"""
+Restoring the old class because of the error below:
+response_format value as json_schema is enabled only for api versions 2024-08-01-preview and later
+"""
+
+
+class AzureOldDeployments(AzureOPENAILLM):
+    def __init__(
+        self,
+        deployment_name: str,
+        model_name: Generation_Models = Generation_Models.AZURE_GPT4O,
+        model_provider: ModelProvider = ModelProvider.AZURE,
+    ):
+        super().__init__(deployment_name, model_name, model_provider)
+
+    @retry(wait=wait_fixed(10), stop=stop_after_attempt(3))
+    async def completion(
+        self,
+        prompt: List[Dict[str, str]] | List[List[Dict[str, str]]],
+        structured_object: Optional[Any] = None,
+        **generation_kwargs: Any,
+    ) -> List[ModelCompletion]:
+        """
+        Generate completions for the given prompt using the model.
+        """
+        temperature = generation_kwargs.get("temperature", 1.0)
+        max_tokens = generation_kwargs.get("max_tokens", 1024)
+
+        if structured_object:
+            tools = [openai.pydantic_function_tool(structured_object)]
+        else:
+            tools = None
+
+        def llm_inference(message: List[Dict[str, str]]):
+            try:
+                response = self.client.chat.completions.create(
+                    model=self.deployment_name,
+                    messages=message,
+                    tools=tools,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+
+                if tools:
+                    return json.loads(
+                        response.choices[0].message.tool_calls[0].function.arguments
+                    )
+                else:
+                    return response.choices[0].message.content
+                return {}
+            except openai.BadRequestError:
+                return {}
+
+        completions = []
+        with ThreadPoolExecutor() as executor:
+            futures = [executor.submit(llm_inference, message) for message in prompt]
+            for future in futures:
+                response = future.result()
+                completions.append(
+                    ModelCompletion(generation=response, model=self.model_name)
                 )
 
         return completions
