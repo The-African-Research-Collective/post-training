@@ -164,8 +164,6 @@ if __name__ == "__main__":
     )
     parser.add_argument("--azure_deployment_name", type=str, required=False)
     parser.add_argument("--azure_deployment_date", type=str, required=False)
-    parser.add_argument("--persona_file", type=str, help="Persona file")
-    parser.add_argument("--data_directory", type=str, default="files/prompts")
     args = parser.parse_args()
 
     asyncio.run(main(args))

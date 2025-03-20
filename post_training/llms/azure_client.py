@@ -139,7 +139,6 @@ class AzureOldDeployments(AzureOPENAILLM):
                     )
                 else:
                     return response.choices[0].message.content
-                return {}
             except openai.BadRequestError:
                 return {}
 
