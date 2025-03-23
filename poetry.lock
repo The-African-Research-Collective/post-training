@@ -166,6 +166,17 @@ files = [
 ]
 
 [[package]]
+name = "antlr4-python3-runtime"
+version = "4.13.2"
+description = "ANTLR 4.13.2 runtime for Python 3"
+optional = false
+python-versions = "*"
+files = [
+    {file = "antlr4_python3_runtime-4.13.2-py3-none-any.whl", hash = "sha256:fe3835eb8d33daece0e799090eda89719dbccee7aa39ef94eed3818cafa5a7e8"},
+    {file = "antlr4_python3_runtime-4.13.2.tar.gz", hash = "sha256:909b647e1d2fc2b70180ac586df3933e38919c85f98ccc656a96cd3f25ef3916"},
+]
+
+[[package]]
 name = "anyio"
 version = "4.7.0"
 description = "High level compatibility layer for multiple asynchronous event loop implementations"
@@ -1356,6 +1367,27 @@ files = [
 ]
 
 [[package]]
+name = "latex2sympy2-extended"
+version = "1.10.1"
+description = "Convert LaTeX math to SymPy expressions"
+optional = false
+python-versions = ">=3.10"
+files = [
+    {file = "latex2sympy2_extended-1.10.1-py3-none-any.whl", hash = "sha256:917a23e8f3b6edea88a56978fbbe87ed9fca4197f8277646be57b4660710347c"},
+    {file = "latex2sympy2_extended-1.10.1.tar.gz", hash = "sha256:e365f0cb8807296c9d1f1661be926859bebd922a6139ce4be1e6572ca183ca57"},
+]
+
+[package.dependencies]
+antlr4-python3-runtime = ">=4.9.3,<=4.13.2"
+sympy = "*"
+
+[package.extras]
+antlr4-11-0 = ["antlr4-python3-runtime (==4.11.0)"]
+antlr4-13-2 = ["antlr4-python3-runtime (==4.13.2)"]
+antlr4-9-3 = ["antlr4-python3-runtime (==4.9.3)"]
+dev = ["pytest"]
+
+[[package]]
 name = "litellm"
 version = "1.56.4"
 description = "Library to easily interface with LLM API providers"
@@ -1648,6 +1680,29 @@ files = [
     {file = "MarkupSafe-3.0.2-cp39-cp39-win_amd64.whl", hash = "sha256:6e296a513ca3d94054c2c881cc913116e90fd030ad1c656b3869762b754f5f8a"},
     {file = "markupsafe-3.0.2.tar.gz", hash = "sha256:ee55d3edf80167e48ea11a923c7386f4669df67d7994554387f84e7d8b0a2bf0"},
 ]
+
+[[package]]
+name = "math-verify"
+version = "0.7.0"
+description = "HuggingFace library for verifying mathematical answers"
+optional = false
+python-versions = ">=3.10"
+files = [
+    {file = "math_verify-0.7.0-py3-none-any.whl", hash = "sha256:bbdd491b511f6ceef27c5e08543affa1735807b6e3abb6f005bf493dc0eb485b"},
+    {file = "math_verify-0.7.0.tar.gz", hash = "sha256:b7459c7b9f1c503b7df32566a95f1e6a33a6cad8cbb759eaa6f100d401112024"},
+]
+
+[package.dependencies]
+latex2sympy2_extended = "1.10.1"
+
+[package.extras]
+antlr4-11-0 = ["latex2sympy2_extended[antlr4-11-0]"]
+antlr4-13-2 = ["latex2sympy2_extended[antlr4-13-2]"]
+antlr4-9-3 = ["latex2sympy2_extended[antlr4-9-3]"]
+dev = ["math-verify[format]", "math-verify[test]"]
+format = ["ruff"]
+inference = ["lighteval[math]"]
+test = ["pytest"]
 
 [[package]]
 name = "matplotlib-inline"
@@ -4161,4 +4216,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.10"
-content-hash = "77b541d546a91ae308b4710c0aef51230f079d08782262f5de319af8738dac14"
+content-hash = "7ae2ec12b3ba2930a33bf84179d8d19ac41f84f2ef6b3504ecd2f880b48ed993"
