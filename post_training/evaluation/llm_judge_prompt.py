@@ -19,8 +19,7 @@ def gpt_judge_for_closeended_freeform(
             "role": "user",
             "content": f"""You will be provided with a mathematics question, its golden answer, and the model's answer. The question could be in any language, and the model's answer could be in any language. Your task is to judge if the model's answer is equal to the golden answer,
 Your task is to judge if the model's answer is correct or not based on the golden answer.
-Your should first briefly give your reasoning process regarding how the model's answer is equal the golden answer(s), and then give the boolean score of 0 or 1 if they are equal or not.
-
+You should first briefly give your reasoning process regarding how the model's answer matches the golden answer(s), and then give the boolean score of 0 or 1 if they are equal or not.
 The score must strictly follow this format: \"[[score]]\", e.g., \": [[1]]\". Below are some examples.
 
 Example 1:
