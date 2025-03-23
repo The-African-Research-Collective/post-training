@@ -2,6 +2,7 @@ import os
 import yaml
 import torch
 import argparse
+from dotenv import load_dotenv
 from datetime import timedelta
 
 from lighteval.models.model_input import GenerationParameters
@@ -29,8 +30,10 @@ else:
 EVAL_PATH = "files/evaluation"
 TOKEN = os.getenv("HF_TOKEN")
 CACHE_DIR: str = os.getenv("HF_HOME")
+CURRENT_DIR = os.path.dirname(os.path.realpath(__file__))
 
 os.makedirs(EVAL_PATH, exist_ok=True)
+load_dotenv()
 
 
 def main(args):
@@ -50,6 +53,7 @@ def main(args):
         env_config=env_config,
         override_batch_size=args.override_batch_size,
         max_samples=args.max_samples,
+        custom_tasks_directory=CURRENT_DIR + "/afrimgsm_evals.py",
     )
 
     # Load model configuration
@@ -58,7 +62,6 @@ def main(args):
 
     if args.inference_type == "vllm":
         model_args = config["base_params"]["model_args"]
-        metric_options = config.get("metric_options", {})
         generation_parameters = GenerationParameters.from_dict(config)
 
         model_args_dict: dict = {
@@ -120,7 +123,6 @@ def main(args):
             )
         else:
             model_config = TransformersModelConfig(**args_dict)
-        metric_options = config.get("metric_options", {})
 
     task = args.task
 
@@ -129,8 +131,6 @@ def main(args):
         pipeline_parameters=pipeline_params,
         evaluation_tracker=evaluation_tracker,
         model_config=model_config,
-        custom_task_directory=None,  # if using a custom task
-        metric_options=metric_options,
     )
 
     pipeline.evaluate()
@@ -142,17 +142,21 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Evaluate a model on a task using lighteval."
     )
-    parser.add_argument("--task", type=str, help="The task to evaluate the model on.")
+    parser.add_argument(
+        "--task", type=str, help="The task to evaluate the model on.", required=True
+    )
     parser.add_argument(
         "--model_config",
         type=str,
         help="The model configuration to use for evaluation.",
+        required=True,
     )
     parser.add_argument(
         "--inference_type",
         type=str,
         help="The type of inference to use for evaluation.",
         choices=["accelerate", "vllm"],
+        required=True,
     )
     parser.add_argument(
         "--max_samples",
@@ -170,7 +174,7 @@ if __name__ == "__main__":
         "--use_chat_template",
         type=bool,
         help="Whether to use the chat template for the model.",
-        default=False,
+        default=True,
     )
     args = parser.parse_args()
     main(args)

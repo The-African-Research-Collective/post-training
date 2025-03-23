@@ -10,4 +10,4 @@ model:
     base_model: null # path to the base_model
   generation:
     temperature: 0.0
-    max_new_tokens: 256
+    max_new_tokens: 512
