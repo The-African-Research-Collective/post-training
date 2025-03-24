@@ -5,6 +5,7 @@ from lighteval.tasks.requests import Doc
 from lighteval.metrics.metrics_sample import JudgeLLM
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
 def gpt_judge_for_closeended_freeform(
@@ -99,8 +100,12 @@ def process_judge_response_gpt(x: str) -> int:
         int: The score extracted from the judge response.
     """
     try:
+        if isinstance(x, list):
+            x = x[0]
+
         search = re.search(r"\[\[([01])\]\]", x)
         return int(search.group(1)) if search else 0
     except Exception as e:
         logger.warning(f"Error processing judge response for multichoice GPT: {e}")
+        logger.warning(f"Response: {x}")
         return 0
