@@ -53,7 +53,7 @@ def main(args):
         env_config=env_config,
         override_batch_size=args.override_batch_size,
         max_samples=args.max_samples,
-        custom_tasks_directory=CURRENT_DIR + "/afrimgsm_evals.py",
+        custom_tasks_directory=CURRENT_DIR + f"/{args.task_file}",
     )
 
     # Load model configuration
@@ -175,6 +175,12 @@ if __name__ == "__main__":
         type=bool,
         help="Whether to use the chat template for the model.",
         default=True,
+    )
+    parser.add_argument(
+        "--task_file",
+        type=str,
+        help="The file containing the task configuration.",
+        default=None,
     )
     args = parser.parse_args()
     main(args)

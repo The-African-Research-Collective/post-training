@@ -5,7 +5,7 @@ export CUDA_VISIBLE_DEVICES=6
 # Usage description
 usage() {
     echo "Usage: $0 [--python PYTHON_EXEC] --tasks COMMA_SEPARATED_TASKS --model_config CONFIG_PATH"
-    echo "Example: $0 --tasks 'community|task1,community|task2' --model_config configs/evaluation/tar"
+    echo "Example: $0 --tasks 'community|task1,community|task2' --model_config configs/evaluation/tar --task_file file.py" 
     exit 1
 }
 
@@ -13,6 +13,7 @@ usage() {
 PYTHON_EXEC="python3"
 TASKS=()
 MODEL_CONFIG=""
+TASK_FILE="afrimgsm_evals.py"
 
 # Parse command line arguments
 PARSED_ARGUMENTS=$(getopt -o p:t:c: --long python:,tasks:,model_config: -- "$@")
@@ -50,4 +51,5 @@ done
 $PYTHON_EXEC -m post_training.evaluation.eval_lighteval \
     "${CMD_ARGS[@]}" \
     --model_config "$MODEL_CONFIG" \
-    --inference_type "accelerate" 
+    --inference_type "accelerate" \
+    --task_file "$TASK_FILE"

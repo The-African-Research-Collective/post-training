@@ -26,9 +26,9 @@ from .llm_judge_prompt import (
 logger = logging.getLogger(__name__)
 
 
-def prompt_fn_afrimmlu_math(line, task_name: str = None):
+def prompt_fn_openaimmlu_math(line, task_name: str = None):
     query_template = """Given the following question, choose the correct answer from the choices provided.
-    Question: {question}
+    Question: {Question}
 
     Given
     Choices:
@@ -39,37 +39,39 @@ def prompt_fn_afrimmlu_math(line, task_name: str = None):
 
     Answer:
     """
-    choices = eval(line["choices"])
     query = query_template.format(
-        question=line["question"],
-        choice_0=choices[0],
-        choice_1=choices[1],
-        choice_2=choices[2],
-        choice_3=choices[3],
+        Question=line["Question"],
+        choice_0=line["A"],
+        choice_1=line["B"],
+        choice_2=line["C"],
+        choice_3=line["D"],
     )
+    choices = [line["A"], line["B"], line["C"], line["D"]]
 
-    answer_index = ["A", "B", "C", "D"].index(line["answer"])
+    answer_index = ["A", "B", "C", "D"].index(line["Answer"])
     return Doc(
         task_name=task_name,
         query=query,
-        original_query=line["question"],
+        original_query=line["Question"],
         choices=choices,
         gold_index=answer_index,
         instruction="",
-        specific={"question": line["question"], "choices": line["choices"]},
+        specific={"question": line["Question"], "choices": choices},
     )
 
 
-def generate_per_language_task_config(language: str, generation_size: int = 512):
+def generate_per_language_task_config(
+    language: str, data_subset: str, generation_size: int = 512
+):
     """
-    Generate the task config for the afrimmlu_math task for a specific language.
+    Generate the task config for the openaimmlu_math task for a specific language.
     """
     return LightevalTaskConfig(
-        name=f"afrimathevals:afrimmlu_math_{language}",
-        prompt_function=prompt_fn_afrimmlu_math,
+        name=f"afrimathevals:openaimmlu_math_{language}",
+        prompt_function=prompt_fn_openaimmlu_math,
         suite=["community"],
-        hf_repo="taresco/AFRIMMLU-FILTERED-MATH",
-        hf_subset=language,
+        hf_repo="taresco/OPENAI-MMLU-FILTERED-MATH",
+        hf_subset=data_subset,
         hf_avail_splits=["train", "test"],
         evaluation_splits=["test"],
         few_shots_split=None,
@@ -97,23 +99,7 @@ llm_judge_math_gpt_judge = SampleLevelMetricGrouping(
 )
 
 TASKS_TABLE = [
-    generate_per_language_task_config("amh"),
-    generate_per_language_task_config("eng"),
-    generate_per_language_task_config("ewe"),
-    generate_per_language_task_config("fra"),
-    generate_per_language_task_config("hau"),
-    generate_per_language_task_config("ibo"),
-    generate_per_language_task_config("kin"),
-    generate_per_language_task_config("lin"),
-    generate_per_language_task_config("lug"),
-    generate_per_language_task_config("orm"),
-    generate_per_language_task_config("sna"),
-    generate_per_language_task_config("sot"),
-    generate_per_language_task_config("swa"),
-    generate_per_language_task_config("twi"),
-    generate_per_language_task_config("vai"),
-    generate_per_language_task_config("wol"),
-    generate_per_language_task_config("xho"),
-    generate_per_language_task_config("yor"),
-    generate_per_language_task_config("zul"),
+    generate_per_language_task_config("ara", "AR_XY"),
+    generate_per_language_task_config("swa", "SW_KE"),
+    generate_per_language_task_config("yor", "YO_NG"),
 ]
