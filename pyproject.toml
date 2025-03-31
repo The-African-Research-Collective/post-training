@@ -21,6 +21,8 @@ typer = "^0.15.1"
 evaluate = "^0.4.3"
 sacrebleu = "^2.5.1"
 loguru = "^0.7.3"
+math-verify = "^0.7.0"
+diskcache = "^5.6.3"
 
 
 [tool.poetry.group.dev.dependencies]

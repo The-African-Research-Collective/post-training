@@ -171,3 +171,4 @@ llm_data/*
 .DS_Store
 wandb/*
 logs/*
+.litellm_cache/*
