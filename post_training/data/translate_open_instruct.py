@@ -18,7 +18,7 @@ from post_training.llms.utils import get_response_format_for_model
 
 def replace_boxed_with_answer(text):
     """
-    Replace LaTeX \\boxed{content} with <answer>content</answer> in the given text.
+    Replace LaTeX \\boxed{content} with content in the given text.
 
     Args:
         text (str): The input text containing LaTeX boxed expressions
@@ -29,7 +29,7 @@ def replace_boxed_with_answer(text):
     # The regex pattern looks for \\boxed{ followed by any characters (non-greedy) until }
     pattern = r"\\boxed\{([^}]*)\}"
 
-    # Replace with <answer>\1</answer> where \1 is the captured content inside the braces
+    # Replace with \1 where \1 is the captured content inside the braces
     result = re.sub(pattern, r"\1", text)
 
     return result
@@ -116,11 +116,6 @@ async def main(args):
             "generated_solution": replace_boxed_with_answer(x["generated_solution"])
         },
     )
-
-    # print(input_dataset[1200])
-
-    # import sys
-    # sys.exit(0)
 
     with (
         jsonlines.open(
