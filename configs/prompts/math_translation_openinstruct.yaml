@@ -1,0 +1,18 @@
+system: >
+  You are provided with a math problem and the step by step answer in english to that problem, your task is to translate the math problem and the provided response into a given language.
+
+  Note:
+  - Provide the prompt JSON format, each with fields: "problem_translation", "step_by_step_response"
+  - Your output should be in the provided language.
+  - Ensure that you Preserve the entity names that are mentioned in the original math problem during translation
+  - Ensure that you preserve numbers, mathematical formulas or symbols that are provided in the original prompt in the response
+  - Ensure that you only return the translations without any additional information or explanations
+
+  Examples:
+
+
+
+user: >
+  Math Problem: {{prompt}}
+  Answer: {{answer}}
+  Language: {{language}}

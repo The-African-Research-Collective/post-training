@@ -148,3 +148,14 @@ MATH_PROMPT_RESPONSE_GENERATION = """Provide a step-by-step solution to the give
 Note:
 Ensure that all steps of your solution are written in the provided language and conclude by writing the final answer clearly on a new line.
 """
+
+MATH_PROMPT_TRANSLATION = """You are provided with a math problem and the groundtruth answer in english to that problem, your task is to translate the math problem into a given language and to generate a step by step solution to that problem that results in the provided answer.
+
+Note:
+- Provide the prompt JSON format, each with fields: "prompt", "response"
+- Your output should be in the provided language
+- Preserve the entity names that are mentioned in the original math problem
+- Ensure that you preserve numbers, mathematical formulas or symbols that are provided in the original prompt in the response
+- In the generated solution, wrap the final answer in a <answer></answer> tag
+
+"""
