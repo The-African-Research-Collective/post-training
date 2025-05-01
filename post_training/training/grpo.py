@@ -22,15 +22,25 @@ from datasets import load_dataset
 from transformers import set_seed
 from transformers.trainer_utils import get_last_checkpoint
 
-from open_r1.configs import GRPOConfig, GRPOScriptArguments
-from open_r1.rewards import get_reward_funcs
-from open_r1.utils import get_model, get_tokenizer
-from open_r1.utils.callbacks import get_callbacks
-from open_r1.utils.wandb_logging import init_wandb_training
+from post_training.training.grpo_args import GRPOConfig, GRPOScriptArguments
+from post_training.training.grpo_rewards import get_reward_funcs
+from post_training.training.model_utils import get_model, get_tokenizer
 from trl import GRPOTrainer, ModelConfig, TrlParser, get_peft_config
 
 
 logger = logging.getLogger(__name__)
+
+
+def init_wandb_training(training_args):
+    """
+    Helper function for setting up Weights & Biases logging tools.
+    """
+    if training_args.wandb_entity is not None:
+        os.environ["WANDB_ENTITY"] = training_args.wandb_entity
+    if training_args.wandb_project is not None:
+        os.environ["WANDB_PROJECT"] = training_args.wandb_project
+    if training_args.wandb_run_group is not None:
+        os.environ["WANDB_RUN_GROUP"] = training_args.wandb_run_group
 
 
 def main(script_args, training_args, model_args):
@@ -123,7 +133,6 @@ def main(script_args, training_args, model_args):
         if training_args.eval_strategy != "no"
         else None,
         peft_config=get_peft_config(model_args),
-        callbacks=get_callbacks(training_args, model_args),
         processing_class=tokenizer,
     )
 
