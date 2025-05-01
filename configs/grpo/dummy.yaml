@@ -44,9 +44,11 @@ report_to:
 - wandb
 reward_funcs:
 - accuracy
-- format
+- reasoning_steps
 - tag_count
+- cosine
 reward_weights:
+- 1.0
 - 1.0
 - 1.0
 - 1.0
@@ -54,5 +56,5 @@ save_strategy: "epoch"
 save_total_limit: 1
 seed: 42
 temperature: 0.7
-use_liger_kernel: true
+use_liger_kernel: false
 warmup_ratio: 0.1

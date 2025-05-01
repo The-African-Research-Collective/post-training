@@ -11,9 +11,11 @@ fi
 
 CUDA_VISIBLE_DEVICES=0 trl vllm-serve --model $BASE_MODEL
 
-CUDA_VISIBLE_DEVICES=1,2,3,4,5,6,7 ACCELERATE_LOG_LEVEL=info \
+CUDA_VISIBLE_DEVICES=1,2,4,5 ACCELERATE_LOG_LEVEL=info \
     accelerate launch \
+    --mixed_precision $TRAINING_PRECISION \
+    --num_machines 1 \
+    --num_processes $NUM_GPUS \
     --use_deepspeed \
     ---deepspeed_config_file configs/deep_speed/stage3_offloading_accelerate.conf \
-    --num_processes 7 \
     post_training/training/grpo.py --config $CONFIG
