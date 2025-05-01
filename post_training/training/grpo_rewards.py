@@ -19,7 +19,7 @@ import math
 import re
 from typing import Callable, Dict, Optional
 
-from math_verify import verify
+from math_verify import verify, parse
 
 
 def extract_answer_from_completion(text):
@@ -55,9 +55,10 @@ def accuracy_reward(
         if len(gold_parsed) != 0:
             # We require the answer to be provided in correct latex (no malformed operators)
             answer_parsed = extract_answer_from_completion(content)
+            print("Answer parsed: ", answer_parsed)
             # Compute binary rewards if verifiable, `None` otherwise to skip this example
             try:
-                reward = float(verify(gold_parsed, answer_parsed))
+                reward = float(verify(parse(gold_parsed), parse(answer_parsed)))
             except Exception as e:
                 print(
                     f"verify failed: {e}, answer: {answer_parsed}, gold: {gold_parsed}"
@@ -82,9 +83,9 @@ def tag_count_reward(completions, **kwargs) -> list[float]:
         count = 0.0
         if text.count("\n") >= 1:
             count += 0.5
-        if text.count("\n<answer>\n") == 1:
+        if text.count("<answer>") == 1:
             count += 0.25
-        if text.count("\n</answer>") == 1:
+        if text.count("</answer>") == 1:
             count += 0.25
         return count
 
@@ -101,10 +102,9 @@ def reasoning_steps_reward(completions, **kwargs):
         \n\* - matches bullet points with asterisks
         First,|Second,|Next,|Finally, - matches transition words
     """
-    pattern = r"(Step \d+:|^\d+\.|\n-|\n\*|First,|Second,|Next,|Finally,)"
+    pattern = r"(Step \d+:|^\d+\.|\n|\n-|\n\*|First,|Second,|Next,|Finally,)"
     completion_contents = [completion[0]["content"] for completion in completions]
     matches = [len(re.findall(pattern, content)) for content in completion_contents]
-
     # Magic number 3 to encourage 3 steps and more, otherwise partial reward
     return [min(1.0, count / 3) for count in matches]
 
@@ -138,7 +138,7 @@ def len_reward(
             continue
 
         answer_parsed = extract_answer_from_completion(content)
-        correctness.append(verify(answer_parsed, gold_parsed))
+        correctness.append(verify(parse(gold_parsed), parse(answer_parsed)))
 
     # Calculate lengths
     lengths = [len(content) for content in contents]
@@ -199,7 +199,7 @@ def get_cosine_scaled_reward(
 
             answer_parsed = extract_answer_from_completion(content)
 
-            is_correct = verify(answer_parsed, gold_parsed)
+            is_correct = verify(parse(gold_parsed), parse(answer_parsed))
             gen_len = len(content)
 
             # Apply cosine scaling based on length
@@ -292,3 +292,12 @@ def get_reward_funcs(script_args) -> list[Callable]:
     reward_funcs = [REWARD_FUNCS_REGISTRY[func] for func in script_args.reward_funcs]
 
     return reward_funcs
+
+
+if __name__ == "__main__":
+    text = "Ilé-iṣẹ́ ná $15000 lórí ìpolówó fún ọdún kan.\n Fún ọdún mìíràn, ó ná ìdá mẹ́ta iye yẹn, èyí tí ó jẹ́ $15000 * 3 = $45000.\n Àpapọ̀ iye tí ilé-iṣẹ́ ná lórí ìpolówó fún ọdún méjèèjì ni $15000 + $45000 = $60000.\nNítorí náà, àpapọ̀ iye tí ilé-iṣẹ́ ná lórí ìpolówó fún ọdún méjèèjì ni <answer>$20000</answer>."
+    answer = "20000"
+    print(accuracy_reward([[{"content": text}]], [answer]))
+    print(tag_count_reward([[{"content": text}]]))
+    print(reasoning_steps_reward([[{"content": text}]]))
+    print(len_reward([[{"content": text}]], [answer]))
