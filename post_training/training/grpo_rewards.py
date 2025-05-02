@@ -22,7 +22,7 @@ from typing import Callable, Dict, Optional
 from math_verify import verify, parse
 
 
-def extract_answer_from_completion(text):
+def extract_answer_from_completion_tag(text):
     """
     Extract the text between <answer> and </answer> tags.
 
@@ -42,6 +42,12 @@ def extract_answer_from_completion(text):
     else:
         return ""
 
+def extract_answer_from_completion(text):
+
+    text = text.split('\n')
+
+    return text[-1]
+
 
 def accuracy_reward(
     completions: list[list[dict[str, str]]], solution: list[str], **kwargs
@@ -56,6 +62,8 @@ def accuracy_reward(
             # We require the answer to be provided in correct latex (no malformed operators)
             answer_parsed = extract_answer_from_completion(content)
             print("Answer parsed: ", answer_parsed)
+            print("Content: ", content)
+            print("GOld Parsed: ", gold_parsed)
             # Compute binary rewards if verifiable, `None` otherwise to skip this example
             try:
                 reward = float(verify(parse(gold_parsed), parse(answer_parsed)))
@@ -295,7 +303,7 @@ def get_reward_funcs(script_args) -> list[Callable]:
 
 
 if __name__ == "__main__":
-    text = "Ilé-iṣẹ́ ná $15000 lórí ìpolówó fún ọdún kan.\n Fún ọdún mìíràn, ó ná ìdá mẹ́ta iye yẹn, èyí tí ó jẹ́ $15000 * 3 = $45000.\n Àpapọ̀ iye tí ilé-iṣẹ́ ná lórí ìpolówó fún ọdún méjèèjì ni $15000 + $45000 = $60000.\nNítorí náà, àpapọ̀ iye tí ilé-iṣẹ́ ná lórí ìpolówó fún ọdún méjèèjì ni <answer>$20000</answer>."
+    text = "Ilé-iṣẹ́ ná $15000 lórí ìpolówó fún ọdún kan.\n Fún ọdún mìíràn, ó ná ìdá mẹ́ta iye yẹn, èyí tí ó jẹ́ $15000 * 3 = $45000.\n Àpapọ̀ iye tí ilé-iṣẹ́ ná lórí ìpolówó fún ọdún méjèèjì ni $15000 + $45000 = $60000.\nNítorí náà, àpapọ̀ iye tí ilé-iṣẹ́ ná lórí ìpolówó fún ọdún méjèèjì ni ó ná ìdá mẹ́ta iye yẹn The final answer is $20000"
     answer = "20000"
     print(accuracy_reward([[{"content": text}]], [answer]))
     print(tag_count_reward([[{"content": text}]]))
