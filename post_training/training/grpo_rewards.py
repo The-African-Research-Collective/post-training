@@ -42,10 +42,16 @@ def extract_answer_from_completion_tag(text):
     else:
         return ""
 
+
 def extract_answer_from_completion(text):
+    """
+    Extract the last line of the text, which is expected to contain the answer.
 
-    text = text.split('\n')
+    Args:
+        text (str): Input string containing the answer
+    """
 
+    text = text.split("\n")
     return text[-1]
 
 
@@ -56,7 +62,7 @@ def accuracy_reward(
     contents = [completion[0]["content"] for completion in completions]
     rewards = []
     for content, sol in zip(contents, solution):
-        gold_parsed = sol
+        gold_parsed = extract_answer_from_completion(sol)
 
         if len(gold_parsed) != 0:
             # We require the answer to be provided in correct latex (no malformed operators)
@@ -138,7 +144,7 @@ def len_reward(
     # First check correctness of answers
     correctness = []
     for content, sol in zip(contents, solution):
-        gold_parsed = sol
+        gold_parsed = extract_answer_from_completion(sol)
         if len(gold_parsed) == 0:
             # Skip unparseable examples
             correctness.append(True)  # Treat as correct to avoid penalizing
@@ -199,7 +205,7 @@ def get_cosine_scaled_reward(
         rewards = []
 
         for content, sol in zip(contents, solution):
-            gold_parsed = sol
+            gold_parsed = extract_answer_from_completion(sol)
             if len(gold_parsed) == 0:
                 rewards.append(1.0)  # Skip unparseable examples
                 print("Failed to parse gold solution: ", sol)
@@ -304,7 +310,7 @@ def get_reward_funcs(script_args) -> list[Callable]:
 
 if __name__ == "__main__":
     text = "Ilé-iṣẹ́ ná $15000 lórí ìpolówó fún ọdún kan.\n Fún ọdún mìíràn, ó ná ìdá mẹ́ta iye yẹn, èyí tí ó jẹ́ $15000 * 3 = $45000.\n Àpapọ̀ iye tí ilé-iṣẹ́ ná lórí ìpolówó fún ọdún méjèèjì ni $15000 + $45000 = $60000.\nNítorí náà, àpapọ̀ iye tí ilé-iṣẹ́ ná lórí ìpolówó fún ọdún méjèèjì ni ó ná ìdá mẹ́ta iye yẹn The final answer is $20000"
-    answer = "20000"
+    answer = "the answer is 20000"
     print(accuracy_reward([[{"content": text}]], [answer]))
     print(tag_count_reward([[{"content": text}]]))
     print(reasoning_steps_reward([[{"content": text}]]))
