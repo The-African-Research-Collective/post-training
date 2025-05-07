@@ -573,7 +573,7 @@ def push_folder_to_hub(
     output_dir: str,
     hf_repo_id: Optional[str] = None,
     hf_repo_revision: Optional[str] = None,
-    private: bool = True,
+    private: bool = False,
 ):
     if accelerator.is_main_process:
         hf_repo_url = f"https://huggingface.co/{hf_repo_id}/tree/{hf_repo_revision}"

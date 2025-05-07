@@ -278,6 +278,17 @@ def main(args: ArgumentParserPlus):
             **dataset_args,
         )
 
+    if data_args.language_subset is not None:
+        # Filter the dataset to only include the specified language subset
+        if "train" in dataset:
+            dataset["train"] = dataset["train"].filter(
+                lambda example: example["language"] in data_args.language_subset
+            )
+        if "validation" in dataset:
+            dataset["validation"] = dataset["validation"].filter(
+                lambda example: example["language"] in data_args.language_subset
+            )
+
     # load pretrained model and tokenizer
     if model_args.config_name:
         config = AutoConfig.from_pretrained(

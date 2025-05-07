@@ -23,6 +23,7 @@ sacrebleu = "^2.5.1"
 loguru = "^0.7.3"
 math-verify = "^0.7.0"
 diskcache = "^5.6.3"
+trl = "^0.17.0"
 
 
 [tool.poetry.group.dev.dependencies]

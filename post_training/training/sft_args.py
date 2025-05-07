@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 from typing import Optional, List, Union
 
+from post_training.constant import TARGET_LANGUAGES
+
 
 @dataclass
 class DatasetArguments:
@@ -58,6 +60,12 @@ class DatasetArguments:
         default=False,
         metadata={"help": "Overwrite the cached training and evaluation sets"},
     )
+    language_subset: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "The language subset to use. If set, only the specified languages will be used."
+        },
+    )
 
     def __post_init__(self):
         if (
@@ -92,6 +100,12 @@ class DatasetArguments:
             or (self.dataset_mixer is not None and self.dataset_mixer_list is not None)
         ):
             raise ValueError("Cannot provide two dataset selection mechanisms.")
+
+        if self.language_subset is not None:
+            if self.language_subset not in TARGET_LANGUAGES:
+                raise ValueError(
+                    f"Language subset {self.language_subset} is not supported. Supported languages are: {TARGET_LANGUAGES}"
+                )
 
 
 @dataclass
@@ -288,7 +302,7 @@ class ExperimentArguments:
         default=None, metadata={"help": "The huggingface entity to push the model to"}
     )
     hf_repo_revision: Optional[str] = field(
-        default=None,
+        default="main",
         metadata={"help": "The huggingface repository revision to push the model to"},
     )
     seed: Optional[int] = field(
