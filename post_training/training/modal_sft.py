@@ -14,6 +14,7 @@ APP_NAME = "post-training-sft"
 CACHE_PATH = "/cache"
 OUTPUT_PATH = "/outputs"
 MAX_TIMEOUT_SECONDS = 24 * 60 * 60
+CUDA_IMAGE = "nvidia/cuda:12.4.0-devel-ubuntu22.04"
 
 app = modal.App(APP_NAME)
 cache_volume = modal.Volume.from_name(
@@ -24,7 +25,8 @@ output_volume = modal.Volume.from_name(
 )
 
 image = (
-    modal.Image.debian_slim(python_version="3.11")
+    modal.Image.from_registry(CUDA_IMAGE, add_python="3.11")
+    .entrypoint([])
     .apt_install("build-essential", "git")
     .uv_sync(
         uv_project_dir=".",
