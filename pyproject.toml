@@ -30,7 +30,7 @@ gpu = [
     "bitsandbytes==0.45.5; sys_platform == 'linux'",
     "deepspeed==0.15.4; sys_platform == 'linux'",
 ]
-tracking = ["wandb==0.19.11"]
+tracking = ["trackio==0.20.2", "wandb==0.19.11"]
 modal = ["modal==1.5.4"]
 dev = [
     "ipykernel==6.29.5",

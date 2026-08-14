@@ -71,8 +71,9 @@ uv sync --frozen --extra modal
 uv run modal setup
 ```
 
-For gated Hugging Face models or W&B tracking, create a Modal secret containing
-`HF_TOKEN` and/or `WANDB_API_KEY`, then pass its name with `--secret`.
+For gated Hugging Face models, Trackio Space logging, or W&B tracking, create a
+Modal secret containing `HF_TOKEN` and/or `WANDB_API_KEY`, then pass its name
+with `--secret`. A Trackio Space requires an `HF_TOKEN` with write permission.
 
 ```bash
 uv run modal run --detach -m post_training.training.modal_sft \
@@ -89,6 +90,34 @@ artifacts persist under `<exp_name>/` in `post-training-outputs`. Runs retry up 
 three times and automatically resume from the newest checkpoint carrying a
 `COMPLETED` marker. Use a unique `exp_name` for a new experiment. Modal GPU time
 is billable; the launcher never runs a job unless explicitly invoked.
+
+### Experiment tracking
+
+Trackio is an optional backend for the same metrics emitted by the low-level SFT
+loop. Enable local-first logging with `with_tracking: true` and
+`report_to: [trackio]`. Local data is stored under `TRACKIO_DIR` (Trackio's
+default cache when unset) and can be viewed with:
+
+```bash
+uv run trackio show --project post-training
+```
+
+For a Modal run, provide a Hugging Face Space. The local Trackio database is
+also persisted at `/cache/trackio` in the `post-training-cache` volume. This
+example logs the 32-sample math smoke run to an existing Space; replace
+`<owner>/<space>` rather than creating one implicitly:
+
+```bash
+uv run modal run --detach -m post_training.training.modal_sft \
+  --config configs/models/dummy_sft_lora.yaml \
+  --gpu A100-80GB \
+  --num-gpus 1 \
+  --secret post-training \
+  --overrides="--dataset_name=taresco/challenging_math_10k_samples_gpt4_generated --max_train_samples=32 --num_train_epochs=1 --push_to_hub=false --with_tracking=true --report_to=trackio --trackio_project_name=post-training --trackio_space_id=<owner>/<space> --exp_name=challenging_math_modal_smoke --run_name=challenging_math_modal_smoke"
+```
+
+Use `--report_to=trackio,wandb` to log to both backends. Trackio is pinned to
+the newest release compatible with this repository's Transformers 4.49 stack.
 
 `uv.lock` is the canonical dependency lock. Use `uv sync --frozen` in automated
 or remote environments so dependency drift fails fast instead of changing the

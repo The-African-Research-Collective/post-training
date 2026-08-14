@@ -37,6 +37,7 @@ image = (
         {
             "HF_HOME": f"{CACHE_PATH}/huggingface",
             "HF_DATASETS_CACHE": f"{CACHE_PATH}/huggingface/datasets",
+            "TRACKIO_DIR": f"{CACHE_PATH}/trackio",
             "TOKENIZERS_PARALLELISM": "false",
             "TORCH_HOME": f"{CACHE_PATH}/torch",
             "PYTHONUNBUFFERED": "1",

@@ -226,7 +226,10 @@ def main(args: ArgumentParserPlus):
 
     exp_args.output_dir = os.path.join(exp_args.output_dir, exp_args.exp_name)
 
-    exp_args.run_name = f"{exp_args.exp_name}__{exp_args.seed}__{int(time.time())}"
+    if exp_args.run_name is None:
+        exp_args.run_name = (
+            f"{exp_args.exp_name}__{exp_args.seed}__{int(time.time())}"
+        )
     if exp_args.push_to_hub:
         exp_args.run_name = f"{exp_args.run_name}__hub"
 
@@ -242,7 +245,25 @@ def main(args: ArgumentParserPlus):
     accelerator_log_kwargs = {}
 
     if exp_args.with_tracking:
-        accelerator_log_kwargs["log_with"] = exp_args.report_to
+        log_with = [
+            target for target in exp_args.report_to if target != "trackio"
+        ]
+        if "trackio" in exp_args.report_to:
+            from post_training.training.trackio_tracker import TrackioTracker
+
+            log_with.append(
+                TrackioTracker(
+                    project=(
+                        exp_args.trackio_project_name
+                        or exp_args.project_name
+                        or exp_args.exp_name
+                    ),
+                    run_name=exp_args.run_name,
+                    group=exp_args.exp_name,
+                    space_id=exp_args.trackio_space_id,
+                )
+            )
+        accelerator_log_kwargs["log_with"] = log_with
         accelerator_log_kwargs["project_dir"] = exp_args.output_dir
 
     # if you get timeouts (e.g. due to long tokenization) increase this.
@@ -865,6 +886,8 @@ def main(args: ArgumentParserPlus):
         # mainly just focussing here on what would be useful for the leaderboard.
         # wandb will have even more useful information.
         wandb_path = None
+        trackio_project = None
+        trackio_space_id = None
         if exp_args.with_tracking:
             report_targets = (
                 [exp_args.report_to]
@@ -873,9 +896,17 @@ def main(args: ArgumentParserPlus):
             )
             if "wandb" in report_targets:
                 wandb_path = accelerator.get_tracker("wandb").run.get_url()
+            if "trackio" in report_targets:
+                trackio_project = (
+                    exp_args.trackio_project_name
+                    or exp_args.project_name
+                    or exp_args.exp_name
+                )
+                trackio_space_id = exp_args.trackio_space_id
 
         metadata_blob = {
             "model_name": exp_args.exp_name,
+            "run_name": exp_args.run_name,
             "model_type": "sft",
             "datasets": dataset_list,
             "base_model": model_args.model_name_or_path,
@@ -884,6 +915,8 @@ def main(args: ArgumentParserPlus):
             "dataset_format": dataset_format,
             "seed": exp_args.seed,
             "wandb_path": wandb_path,
+            "trackio_project": trackio_project,
+            "trackio_space_id": trackio_space_id,
         }
         # save metadata to the output directory. then it should also get pushed to HF.
         with open(os.path.join(exp_args.output_dir, "metadata.json"), "w") as f:

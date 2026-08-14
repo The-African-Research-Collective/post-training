@@ -297,8 +297,9 @@ class ExperimentArguments:
         metadata={
             "help": "The integration(s) to report results and logs to. "
             "Can be a single string or a list of strings. "
-            "Options are 'tensorboard', 'wandb', 'comet_ml', 'clearml', or 'all'. "
-            "Specify multiple by listing them: e.g., ['tensorboard', 'wandb']"
+            "Options include 'trackio', 'tensorboard', 'wandb', 'comet_ml', "
+            "'clearml', or 'all'. Specify multiple by listing them: "
+            "e.g., ['trackio', 'wandb']"
         },
     )
     use_8bit_optimizer: bool = field(
@@ -357,6 +358,16 @@ class ExperimentArguments:
     wandb_project_name: Optional[str] = field(
         default=None,
         metadata={"help": "Project name to use for logging to wandb."},
+    )
+    trackio_project_name: Optional[str] = field(
+        default=None,
+        metadata={"help": "Project name to use for logging to Trackio."},
+    )
+    trackio_space_id: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "Optional Hugging Face Space id for remote Trackio logging."
+        },
     )
     resume_from_checkpoint: Optional[str] = field(
         default=None,
