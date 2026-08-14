@@ -1,12 +1,110 @@
-# Exploring Post Training for African Languages
+# Post Training
 
-This repository contains code for exploring post-training across different facets for African languages. African Languages are generally low-resourced and the absense of large bodies of "high-quality" unsupervised text and instruction-response pairs means we have to be creative about how we approach the problem of training models for these languages. The main goal of this project is to explore language adaptation across different dimensions such as:
+This repository is the shared home for low-level post-training research. It keeps
+the training loop inspectable while following the dataset and configuration
+conventions used by Hugging Face TRL. African-language adaptation remains an
+important research focus, but it is not a constraint on the reusable training
+code.
 
-- Synthesizing text in African languages: We explore popular synthetic text generation techniques and adapt them to African languages and then crank up the creativity to see what we can come up with.
-- Language Adaptation via alignment: We explore techniques for aligning languages and see how we can leverage these techniques to adapt models to African languages.
+## Supervised fine-tuning
 
-## Synthetic Text Generation
-...
+The SFT entry point is `post_training.training.sft`. It accepts one YAML config
+or dataclass arguments directly. A YAML value can be overridden with
+`--name=value` after the config path.
 
-## Language Adaptation via Alignment
-...
+Supported dataset sources:
+
+- a Hugging Face dataset through `dataset_name`;
+- a local JSON, JSONL, CSV, or Parquet file through `train_file`;
+- a dataset saved with `datasets.save_to_disk` through `dataset_name`;
+- deterministic count- or fraction-based mixtures through `dataset_mixer`.
+
+Supported data shapes mirror the core TRL SFT formats:
+
+- conversational: a `messages` list containing `role` and `content`;
+- prompt/completion: string pairs or conversational-list pairs;
+- language modelling text in a `text` column;
+- pretokenized `input_ids`, with optional `labels` and `attention_mask`.
+
+Use `dataset_format: auto` for inference, or set it explicitly. The corresponding
+column names are configurable. `language_subset` is an optional exact-match
+filter and accepts arbitrary language labels.
+
+### GPU server
+
+Python 3.10 through 3.12 is supported. Install the core project and the optional
+GPU and tracking dependencies:
+
+```bash
+poetry install --with gpu,tracking
+```
+
+Launch one or more visible GPUs without DeepSpeed:
+
+```bash
+scripts/run_sft.sh configs/models/dummy_sft_lora.yaml 1 bf16
+```
+
+Pass a DeepSpeed JSON config as the fourth argument when required:
+
+```bash
+scripts/run_sft.sh \
+  configs/models/dummy_sft_lora.yaml \
+  4 \
+  bf16 \
+  configs/deep_speed/stage3_offloading_accelerate.conf
+```
+
+`CUDA_VISIBLE_DEVICES` is inherited from the caller. Flash Attention remains an
+optional system-level optimization because its installation depends on the CUDA
+toolchain; set `use_flash_attention: false` or `attn_implementation: sdpa` when
+it is unavailable.
+
+### Modal serverless GPUs
+
+The Modal adapter builds a Python 3.11 image and invokes the same Accelerate SFT
+entry point. It does not contain a second trainer. Install and authenticate the
+local Modal client:
+
+```bash
+poetry install --only modal
+poetry run modal setup
+```
+
+For gated Hugging Face models or W&B tracking, create a Modal secret containing
+`HF_TOKEN` and/or `WANDB_API_KEY`, then pass its name with `--secret`.
+
+```bash
+poetry run modal run --detach -m post_training.training.modal_sft \
+  --config configs/models/dummy_sft_lora.yaml \
+  --gpu A100-80GB \
+  --num-gpus 1 \
+  --secret post-training \
+  --overrides="--use_flash_attention=false --attn_implementation=sdpa"
+```
+
+The first run builds the image and can take several minutes. Model and dataset
+caches persist in the `post-training-cache` Modal Volume. Checkpoints and final
+artifacts persist under `<exp_name>/` in `post-training-outputs`. Runs retry up to
+three times and automatically resume from the newest checkpoint carrying a
+`COMPLETED` marker. Use a unique `exp_name` for a new experiment. Modal GPU time
+is billable; the launcher never runs a job unless explicitly invoked.
+
+## Artifacts and safety defaults
+
+Local outputs are written to `<output_dir>/<exp_name>/`. Each completed run
+contains the model or adapter, tokenizer, `metadata.json`, and retained
+`step_<n>` or `epoch_<n>` Accelerator checkpoints. Hub publication is disabled
+by default; when enabled, newly created repositories are private by default.
+Remote model code is also disabled by default and must be explicitly trusted.
+
+Pin `model_revision` and `dataset_revision` for reproducible research runs. A
+dataset or model identifier does not establish permission to use it: review its
+card, license, provenance, personal-data handling, and access terms before
+training or publishing artifacts.
+
+## Other workflows
+
+Data generation, translation, evaluation, DPO, and GRPO code remains available
+under `post_training/`. These paths are being hardened incrementally; SFT is the
+first workflow moved onto the shared, dataset-extensible runtime contract.

@@ -7,7 +7,7 @@ readme = "README.md"
 package-mode = true
 
 [tool.poetry.dependencies]
-python = "^3.10"
+python = ">=3.10,<3.13"
 litellm = "^1.53.9"
 python-dotenv = "^1.0.1"
 tenacity = "^9.0.0"
@@ -24,6 +24,27 @@ loguru = "^0.7.3"
 math-verify = "^0.7.0"
 diskcache = "^5.6.3"
 trl = "^0.17.0"
+torch = "^2.6.0"
+peft = "^0.14.0"
+
+[tool.poetry.group.gpu]
+optional = true
+
+[tool.poetry.group.gpu.dependencies]
+bitsandbytes = {version = "^0.45.2", markers = "sys_platform == 'linux'"}
+deepspeed = {version = "0.15.4", markers = "sys_platform == 'linux'"}
+
+[tool.poetry.group.tracking]
+optional = true
+
+[tool.poetry.group.tracking.dependencies]
+wandb = "^0.19.7"
+
+[tool.poetry.group.modal]
+optional = true
+
+[tool.poetry.group.modal.dependencies]
+modal = "^1.2.3"
 
 
 [tool.poetry.group.dev.dependencies]
