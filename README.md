@@ -36,7 +36,7 @@ Python 3.10 through 3.12 is supported. Install the core project and the optional
 GPU and tracking dependencies:
 
 ```bash
-poetry install --with gpu,tracking
+uv sync --frozen --extra gpu --extra tracking
 ```
 
 Launch one or more visible GPUs without DeepSpeed:
@@ -67,15 +67,15 @@ entry point. It does not contain a second trainer. Install and authenticate the
 local Modal client:
 
 ```bash
-poetry install --only modal
-poetry run modal setup
+uv sync --frozen --extra modal
+uv run modal setup
 ```
 
 For gated Hugging Face models or W&B tracking, create a Modal secret containing
 `HF_TOKEN` and/or `WANDB_API_KEY`, then pass its name with `--secret`.
 
 ```bash
-poetry run modal run --detach -m post_training.training.modal_sft \
+uv run modal run --detach -m post_training.training.modal_sft \
   --config configs/models/dummy_sft_lora.yaml \
   --gpu A100-80GB \
   --num-gpus 1 \
@@ -89,6 +89,10 @@ artifacts persist under `<exp_name>/` in `post-training-outputs`. Runs retry up 
 three times and automatically resume from the newest checkpoint carrying a
 `COMPLETED` marker. Use a unique `exp_name` for a new experiment. Modal GPU time
 is billable; the launcher never runs a job unless explicitly invoked.
+
+`uv.lock` is the canonical dependency lock. Use `uv sync --frozen` in automated
+or remote environments so dependency drift fails fast instead of changing the
+environment during a run.
 
 ## Artifacts and safety defaults
 

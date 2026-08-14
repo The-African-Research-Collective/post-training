@@ -1,16 +1,15 @@
-#download and install uv 
-curl -LsSf https://astral.sh/uv/install.sh | sh
+#!/usr/bin/env bash
+set -euo pipefail
 
-# create a UV environment
-uv && uv venv
+if ! command -v uv >/dev/null 2>&1; then
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    export PATH="$HOME/.local/bin:$PATH"
+fi
 
-# activate the environment
-source .venv/bin/activate
+uv sync --frozen --extra gpu --extra tracking
 
-# install the required packages
-uv pip install wandb
-uv pip install deepspeed==0.15.4
+# These CUDA-dependent GRPO additions remain explicit because they require the
+# target server's toolchain and a research-specific TRL revision.
 uv pip install flash-attn --no-build-isolation
-uv pip install trl[vllm]@git+https://github.com/huggingface/trl.git@1bca49515ecd5b85d16e68c42c76670e252e19f1
-
+uv pip install "trl[vllm] @ git+https://github.com/huggingface/trl.git@1bca49515ecd5b85d16e68c42c76670e252e19f1"
 

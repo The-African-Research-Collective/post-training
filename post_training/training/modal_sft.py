@@ -26,11 +26,10 @@ output_volume = modal.Volume.from_name(
 image = (
     modal.Image.debian_slim(python_version="3.11")
     .apt_install("build-essential", "git")
-    .poetry_install_from_file(
-        "pyproject.toml",
-        poetry_lockfile="poetry.lock",
-        with_=["gpu", "tracking"],
-        poetry_version="1.8.3",
+    .uv_sync(
+        uv_project_dir=".",
+        frozen=True,
+        extras=["gpu", "tracking"],
     )
     .env(
         {
