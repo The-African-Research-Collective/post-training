@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import List, Optional, Union
+from typing import List, Optional
 
 
 @dataclass
@@ -90,7 +90,7 @@ class DatasetArguments:
     language_column: str = field(
         default="language", metadata={"help": "Column used for language filtering."}
     )
-    language_subset: Optional[Union[str, List[str]]] = field(
+    language_subset: Optional[List[str]] = field(
         default=None,
         metadata={
             "help": "One language or a list of languages to retain before tokenization."
@@ -98,6 +98,9 @@ class DatasetArguments:
     )
 
     def __post_init__(self):
+        if isinstance(self.language_subset, str):
+            self.language_subset = [self.language_subset]
+
         if (
             self.dataset_name is None
             and self.train_file is None
@@ -289,8 +292,8 @@ class ExperimentArguments:
         default=2,
         metadata={"help": "Total number of training epochs to perform."},
     )
-    report_to: Union[str, List[str]] = field(
-        default="none",
+    report_to: List[str] = field(
+        default_factory=lambda: ["none"],
         metadata={
             "help": "The integration(s) to report results and logs to. "
             "Can be a single string or a list of strings. "
@@ -421,6 +424,9 @@ class ExperimentArguments:
     )
 
     def __post_init__(self):
+        if isinstance(self.report_to, str):
+            self.report_to = [self.report_to]
+
         if self.reduce_loss not in ["mean", "sum"]:
             raise ValueError("reduce_loss must be either 'mean' or 'sum'")
         if self.num_train_epochs <= 0:
@@ -429,8 +435,7 @@ class ExperimentArguments:
             raise ValueError("max_train_steps must be positive when provided")
         if self.keep_last_n_checkpoints < -1:
             raise ValueError("keep_last_n_checkpoints must be -1 or greater")
-        report_targets = (
-            [self.report_to] if isinstance(self.report_to, str) else self.report_to
-        )
-        if self.with_tracking and (not report_targets or report_targets == ["none"]):
+        if self.with_tracking and (
+            not self.report_to or self.report_to == ["none"]
+        ):
             raise ValueError("with_tracking requires at least one report_to integration")

@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Optional, List, Union
+from typing import List, Optional
 
 
 @dataclass
@@ -203,8 +203,8 @@ class ExperimentArguments:
         default=2,
         metadata={"help": "Total number of training epochs to perform."},
     )
-    report_to: Union[str, List[str]] = field(
-        default="all",
+    report_to: List[str] = field(
+        default_factory=lambda: ["all"],
         metadata={
             "help": "The integration(s) to report results and logs to. "
             "Can be a single string or a list of strings. "
@@ -372,5 +372,8 @@ class ExperimentArguments:
     )
 
     def __post_init__(self):
+        if isinstance(self.report_to, str):
+            self.report_to = [self.report_to]
+
         if self.reduce_loss not in ["mean", "sum"]:
             raise ValueError("reduce_loss must be either 'mean' or 'sum'")
