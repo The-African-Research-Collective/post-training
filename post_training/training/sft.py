@@ -18,7 +18,12 @@ from datetime import timedelta
 import datasets
 import torch
 import transformers
-from accelerate.utils import InitProcessGroupKwargs, set_seed, DataLoaderConfiguration
+from accelerate.utils import (
+    DataLoaderConfiguration,
+    DistributedType,
+    InitProcessGroupKwargs,
+    set_seed,
+)
 from accelerate import Accelerator
 from accelerate.logging import get_logger
 from peft import LoraConfig, TaskType, get_peft_model, prepare_model_for_kbit_training
@@ -51,15 +56,12 @@ from post_training.training.sft_args import (
 logger = get_logger(__name__)
 
 
-try:
-    import deepspeed
-except ImportError:  # DeepSpeed is optional for single-process training.
-    deepspeed = None
-
-
-def _gathered_parameters(parameter):
-    if deepspeed is None:
+def _gathered_parameters(parameter, accelerator):
+    if accelerator.distributed_type != DistributedType.DEEPSPEED:
         return nullcontext()
+
+    import deepspeed
+
     return deepspeed.zero.GatheredParameters(parameter, modifier_rank=None)
 
 
@@ -399,7 +401,7 @@ def main(args: ArgumentParserPlus):
     # on a small vocab and want a smaller embedding size, remove this test.
     # gather deepspeed to get "real" embedding size
     embeddings = model.get_input_embeddings()
-    with _gathered_parameters(embeddings.weight):
+    with _gathered_parameters(embeddings.weight, accelerator):
         embedding_size = embeddings.weight.shape[0]
 
     # resize does its own gather
@@ -408,7 +410,7 @@ def main(args: ArgumentParserPlus):
         model.resize_token_embeddings(len(tokenizer), pad_to_multiple_of=8)
     # update embedding size after resizing for sum loss
     embeddings = model.get_input_embeddings()
-    with _gathered_parameters(embeddings.weight):
+    with _gathered_parameters(embeddings.weight, accelerator):
         embedding_size = embeddings.weight.shape[0]
 
     # set the tokenizer chat template to the training format
