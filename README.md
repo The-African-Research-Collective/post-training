@@ -99,6 +99,7 @@ loop. Enable local-first logging with `with_tracking: true` and
 default cache when unset) and can be viewed with:
 
 ```bash
+uv sync --frozen --extra tracking
 uv run trackio show --project post-training
 ```
 
