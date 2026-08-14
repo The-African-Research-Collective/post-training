@@ -1,7 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Optional, List, Union
-
-from post_training.constant import TARGET_LANGUAGES
+from typing import List, Optional, Union
 
 
 @dataclass
@@ -10,8 +8,11 @@ class DatasetArguments:
     Arguments for dataset configuration for supervised fine-tuning
     """
 
-    chat_template_name: str = field(
-        default=None, metadata={"help": "The name of the chat template to use"}
+    chat_template_name: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "A built-in chat template name or tokenizer id. Uses the model tokenizer template when omitted."
+        },
     )
     dataset_name: Optional[str] = field(
         default=None,
@@ -21,6 +22,32 @@ class DatasetArguments:
     )
     dataset_config_name: Optional[str] = field(
         default=None, metadata={"help": "The configuration name of the dataset to use"}
+    )
+    dataset_revision: Optional[str] = field(
+        default=None,
+        metadata={"help": "The immutable dataset revision to load from the Hub."},
+    )
+    dataset_format: str = field(
+        default="auto",
+        metadata={
+            "help": "Dataset format: auto, conversational, prompt_completion, text, or pretokenized."
+        },
+    )
+    messages_column: str = field(
+        default="messages", metadata={"help": "Column containing role/content messages."}
+    )
+    text_column: str = field(
+        default="text", metadata={"help": "Column containing plain training text."}
+    )
+    prompt_column: str = field(
+        default="prompt", metadata={"help": "Prompt column for prompt/completion data."}
+    )
+    completion_column: str = field(
+        default="completion",
+        metadata={"help": "Completion column for prompt/completion data."},
+    )
+    train_split: str = field(
+        default="train", metadata={"help": "Dataset split used for training."}
     )
     dataset_mixer: Optional[dict] = field(
         default=None,
@@ -60,10 +87,13 @@ class DatasetArguments:
         default=False,
         metadata={"help": "Overwrite the cached training and evaluation sets"},
     )
-    language_subset: Optional[str] = field(
+    language_column: str = field(
+        default="language", metadata={"help": "Column used for language filtering."}
+    )
+    language_subset: Optional[Union[str, List[str]]] = field(
         default=None,
         metadata={
-            "help": "The language subset to use. If set, only the specified languages will be used."
+            "help": "One language or a list of languages to retain before tokenization."
         },
     )
 
@@ -79,11 +109,11 @@ class DatasetArguments:
             )
         else:
             if self.train_file is not None:
-                extension = self.train_file.split(".")[-1]
-                assert extension in [
-                    "json",
-                    "jsonl",
-                ], "`train_file` should be a json or a jsonl file."
+                extension = self.train_file.rsplit(".", maxsplit=1)[-1].lower()
+                if extension not in {"json", "jsonl", "csv", "parquet"}:
+                    raise ValueError(
+                        "`train_file` must be JSON, JSONL, CSV, or Parquet."
+                    )
         if (
             (
                 self.dataset_name is not None
@@ -101,11 +131,21 @@ class DatasetArguments:
         ):
             raise ValueError("Cannot provide two dataset selection mechanisms.")
 
-        if self.language_subset is not None:
-            if self.language_subset not in TARGET_LANGUAGES:
-                raise ValueError(
-                    f"Language subset {self.language_subset} is not supported. Supported languages are: {TARGET_LANGUAGES}"
-                )
+        supported_formats = {
+            "auto",
+            "conversational",
+            "prompt_completion",
+            "text",
+            "pretokenized",
+        }
+        if self.dataset_format not in supported_formats:
+            raise ValueError(
+                f"Unsupported dataset format {self.dataset_format!r}. "
+                f"Choose one of {sorted(supported_formats)}."
+            )
+
+        if isinstance(self.language_subset, list) and not self.language_subset:
+            raise ValueError("language_subset cannot be an empty list")
 
 
 @dataclass
@@ -125,15 +165,16 @@ class ModelArguments:
         default=None,
         metadata={"help": "The model configuration to use, it is usually a model name"},
     )
-    trust_remote_code: Optional[bool] = field(
-        default=True, metadata={"help": "Whether to trust remote code"}
+    trust_remote_code: bool = field(
+        default=False,
+        metadata={"help": "Whether to execute custom code from a remote model repo."},
     )
     tokenizer_name: Optional[str] = field(
         default=None, metadata={"help": "The tokenizer to use"}
     )
     tokenizer_revision: Optional[str] = field(
-        default="main",
-        metadata={"help": "The version of the tokenizer on huggingface to use"},
+        default=None,
+        metadata={"help": "Tokenizer revision. Defaults to the model revision."},
     )
     use_slow_tokenizer: Optional[bool] = field(
         default=False, metadata={"help": "Whether to use a slow tokenizer"}
@@ -161,6 +202,41 @@ class ModelArguments:
     gradient_checkpointing: Optional[bool] = field(
         default=False, metadata={"help": "Whether to use gradient checkpointing"}
     )
+    torch_dtype: str = field(
+        default="auto",
+        metadata={"help": "Model dtype: auto, float32, float16, or bfloat16."},
+    )
+    attn_implementation: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "Transformers attention backend, for example eager, sdpa, or flash_attention_2."
+        },
+    )
+    lora_target_modules: Optional[List[str]] = field(
+        default=None,
+        metadata={
+            "help": "LoRA target modules. Uses common projection modules when omitted."
+        },
+    )
+
+    def __post_init__(self):
+        supported_dtypes = {"auto", "float32", "float16", "bfloat16"}
+        if self.torch_dtype not in supported_dtypes:
+            raise ValueError(
+                f"Unsupported torch_dtype {self.torch_dtype!r}. "
+                f"Choose one of {sorted(supported_dtypes)}."
+            )
+        if self.attn_implementation not in {
+            None,
+            "eager",
+            "sdpa",
+            "flash_attention_2",
+        }:
+            raise ValueError(
+                "attn_implementation must be eager, sdpa, flash_attention_2, or null"
+            )
+        if self.use_qlora and not self.use_lora:
+            raise ValueError("use_qlora requires use_lora")
 
 
 @dataclass
@@ -176,10 +252,6 @@ class ExperimentArguments:
     )
     push_to_hub: bool = field(
         default=False, metadata={"help": "Whether to push the model to the hub"}
-    )
-    output_dir: Optional[str] = field(
-        default=None,
-        metadata={"help": "The output directory to save the model and logs"},
     )
     with_tracking: bool = field(
         default=False,
@@ -218,7 +290,7 @@ class ExperimentArguments:
         metadata={"help": "Total number of training epochs to perform."},
     )
     report_to: Union[str, List[str]] = field(
-        default="all",
+        default="none",
         metadata={
             "help": "The integration(s) to report results and logs to. "
             "Can be a single string or a list of strings. "
@@ -239,13 +311,6 @@ class ExperimentArguments:
     weight_decay: float = field(
         default=0.0,
         metadata={"help": "Weight decay for AdamW if we apply some."},
-    )
-    timeout: int = field(
-        default=1800,
-        metadata={
-            "help": "Timeout for the training process in seconds."
-            "Useful if tokenization process is long. Default is 1800 seconds (30 minutes)."
-        },
     )
     learning_rate: float = field(
         default=5e-5,
@@ -271,7 +336,7 @@ class ExperimentArguments:
         },
     )
     fused_optimizer: bool = field(
-        default=True,
+        default=False,
         metadata={
             "help": "Whether to use fused AdamW or not.",
         },
@@ -305,17 +370,18 @@ class ExperimentArguments:
         default="main",
         metadata={"help": "The huggingface repository revision to push the model to"},
     )
+    hf_private_repo: bool = field(
+        default=True,
+        metadata={"help": "Create a private Hugging Face repository when needed."},
+    )
     seed: Optional[int] = field(
         default=42, metadata={"help": "The seed to use for the run"}
     )
-    reports_to: Optional[List[str]] = field(
-        default="wandb", metadata={"help": "The service to report to"}
-    )
-    timeout: Optional[int] = field(
+    timeout: int = field(
         default=600, metadata={"help": "The timeout for the run"}
     )
     use_flash_attention: Optional[bool] = field(
-        default=True, metadata={"help": "Whether to use flash attention"}
+        default=False, metadata={"help": "Whether to use flash attention"}
     )
     max_train_steps: Optional[int] = field(
         default=None,
@@ -357,3 +423,14 @@ class ExperimentArguments:
     def __post_init__(self):
         if self.reduce_loss not in ["mean", "sum"]:
             raise ValueError("reduce_loss must be either 'mean' or 'sum'")
+        if self.num_train_epochs <= 0:
+            raise ValueError("num_train_epochs must be positive")
+        if self.max_train_steps is not None and self.max_train_steps <= 0:
+            raise ValueError("max_train_steps must be positive when provided")
+        if self.keep_last_n_checkpoints < -1:
+            raise ValueError("keep_last_n_checkpoints must be -1 or greater")
+        report_targets = (
+            [self.report_to] if isinstance(self.report_to, str) else self.report_to
+        )
+        if self.with_tracking and (not report_targets or report_targets == ["none"]):
+            raise ValueError("with_tracking requires at least one report_to integration")

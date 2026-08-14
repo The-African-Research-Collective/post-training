@@ -12,16 +12,15 @@ import random
 import os
 import time
 import logging
+from contextlib import nullcontext
 from datetime import timedelta
 
 import datasets
-import deepspeed
 import torch
 import transformers
 from accelerate.utils import InitProcessGroupKwargs, set_seed, DataLoaderConfiguration
 from accelerate import Accelerator
 from accelerate.logging import get_logger
-from datasets import load_dataset
 from peft import LoraConfig, TaskType, get_peft_model, prepare_model_for_kbit_training
 from torch.utils.data import DataLoader
 from transformers import (
@@ -29,25 +28,20 @@ from transformers import (
     AutoTokenizer,
     BitsAndBytesConfig,
     AutoModelForCausalLM,
-    LlamaTokenizer,
-    LlamaTokenizerFast,
-    GPTNeoXTokenizerFast,
-    GPT2Tokenizer,
     DataCollatorForSeq2Seq,
-    OPTForCausalLM,
     get_scheduler,
 )
 from tqdm import tqdm
 
 from post_training.training.utils import (
     ArgumentParserPlus,
-    mix_datasets,
     CHAT_TEMPLATES,
     get_last_checkpoint_path,
     clean_last_n_checkpoints,
     push_folder_to_hub,
 )
 from post_training.training.model_utils import save_with_accelerate
+from post_training.training.sft_data import load_sft_train_dataset
 from post_training.training.sft_args import (
     ExperimentArguments,
     ModelArguments,
@@ -57,20 +51,71 @@ from post_training.training.sft_args import (
 logger = get_logger(__name__)
 
 
-def check_token_ids_in_text(text_ids, token_ids):
-    results = []
-    for i in range(len(text_ids) - len(token_ids) + 1):
-        if text_ids[i : i + len(token_ids)] == token_ids:
-            results.append((i, i + len(token_ids)))
-    return results
+try:
+    import deepspeed
+except ImportError:  # DeepSpeed is optional for single-process training.
+    deepspeed = None
 
 
-def encode_sft_example(example, tokenizer, max_seq_length, mask_instructions=True):
+def _gathered_parameters(parameter):
+    if deepspeed is None:
+        return nullcontext()
+    return deepspeed.zero.GatheredParameters(parameter, modifier_rank=None)
+
+
+def encode_sft_example(
+    example,
+    tokenizer,
+    max_seq_length,
+    dataset_format,
+    mask_instructions=True,
+):
     """
-    This function encodes a single example into a format that can be used for sft training.
-    Here, we assume each example has a 'messages' field. Each message in it is a dict with 'role' and 'content' fields.
-    We use the `apply_chat_template` function from the tokenizer to tokenize the messages and prepare the input and label tensors.
+    Supports the same core input shapes as TRL SFT: conversational messages,
+    plain text, and pretokenized examples. Prompt/completion examples are
+    normalized to messages while loading the dataset.
     """
+    if dataset_format == "pretokenized":
+        input_ids = torch.as_tensor(example["input_ids"], dtype=torch.long)
+        if input_ids.ndim != 1:
+            raise ValueError("Pretokenized input_ids must be a one-dimensional list.")
+        if max_seq_length is not None:
+            input_ids = input_ids[:max_seq_length]
+        labels = torch.as_tensor(
+            example.get("labels", input_ids.tolist()), dtype=torch.long
+        )
+        attention_mask = torch.as_tensor(
+            example.get("attention_mask", [1] * len(input_ids)), dtype=torch.long
+        )
+        if labels.ndim != 1 or attention_mask.ndim != 1:
+            raise ValueError(
+                "Pretokenized labels and attention_mask must be one-dimensional."
+            )
+        if len(labels) < len(input_ids) or len(attention_mask) < len(input_ids):
+            raise ValueError(
+                "Pretokenized labels and attention_mask cannot be shorter than input_ids."
+            )
+        return {
+            "input_ids": input_ids,
+            "labels": labels[: len(input_ids)],
+            "attention_mask": attention_mask[: len(input_ids)],
+        }
+
+    if dataset_format == "text":
+        encoded = tokenizer(
+            example["text"],
+            truncation=True,
+            max_length=max_seq_length,
+            padding=False,
+            return_tensors="pt",
+        )
+        input_ids = encoded["input_ids"].flatten()
+        return {
+            "input_ids": input_ids,
+            "labels": input_ids.clone(),
+            "attention_mask": encoded["attention_mask"].flatten(),
+        }
+
     messages = example["messages"]
     if len(messages) == 0:
         raise ValueError("messages field is empty.")
@@ -85,16 +130,12 @@ def encode_sft_example(example, tokenizer, max_seq_length, mask_instructions=Tru
     )
 
     labels = input_ids.clone()
-
-    list_labels = labels.flatten().tolist()
-    modify_labels = False
-    tokens_to_mask = [
-        "<|start_header_id|>user<|end_header_id|>",
-        "<|start_header_id|>assistant<|end_header_id|>",
-    ]
-    list_of_tokens_ids_to_mask = [
-        tokenizer(t, add_special_tokens=False).input_ids for t in tokens_to_mask
-    ]
+    if not mask_instructions:
+        return {
+            "input_ids": input_ids.flatten(),
+            "labels": labels.flatten(),
+            "attention_mask": torch.ones_like(input_ids).flatten(),
+        }
 
     # mask the non-assistant part for avoiding loss
     for message_idx, message in enumerate(messages):
@@ -151,27 +192,10 @@ def encode_sft_example(example, tokenizer, max_seq_length, mask_instructions=Tru
             # From Torch Documentation "" ignore_index (int, optional) – Specifies a target value that is ignored and does not contribute to the input gradient.""
             # https://pytorch.org/docs/stable/generated/torch.nn.CrossEntropyLoss.html
 
-            if mask_instructions:
-                labels[:, message_start_idx:message_end_idx] = -100
-            else:
-                # Set special tokens to -100
-                # TODO: This is very hacky, we should find a better way to do this
-                # Also this only works for the llama chat template
-                modify_labels = True
-
-                for i, token_ids in enumerate(list_of_tokens_ids_to_mask):
-                    results = check_token_ids_in_text(list_labels, token_ids)
-                    for j, (x, y) in enumerate(results):
-                        list_labels[x:y] = [-100] * (y - x)
-
-                        if i == 0 and j == 0:
-                            results.append((0, x))
+            labels[:, message_start_idx:message_end_idx] = -100
 
             if max_seq_length and message_end_idx >= max_seq_length:
                 break
-
-    if modify_labels:
-        labels = torch.tensor(list_labels).reshape(labels.shape)
 
     attention_mask = torch.ones_like(input_ids)
     return {
@@ -179,6 +203,20 @@ def encode_sft_example(example, tokenizer, max_seq_length, mask_instructions=Tru
         "labels": labels.flatten(),
         "attention_mask": attention_mask.flatten(),
     }
+
+
+def save_training_checkpoint(accelerator, exp_args, checkpoint_name):
+    """Atomically mark a distributed Accelerator checkpoint as complete."""
+    output_dir = os.path.join(exp_args.output_dir, checkpoint_name)
+    accelerator.save_state(output_dir)
+    accelerator.wait_for_everyone()
+    if accelerator.is_main_process:
+        with open(os.path.join(output_dir, "COMPLETED"), "w") as marker:
+            marker.write("COMPLETED")
+        clean_last_n_checkpoints(
+            exp_args.output_dir, exp_args.keep_last_n_checkpoints
+        )
+    accelerator.wait_for_everyone()
 
 
 def main(args: ArgumentParserPlus):
@@ -232,7 +270,7 @@ def main(args: ArgumentParserPlus):
         datasets.utils.logging.set_verbosity_error()
         transformers.utils.logging.set_verbosity_error()
 
-    if exp_args.seed:
+    if exp_args.seed is not None:
         set_seed(exp_args.seed)
 
     # Create output directory in the main process
@@ -242,52 +280,14 @@ def main(args: ArgumentParserPlus):
 
     accelerator.wait_for_everyone()
 
-    if data_args.dataset_name:
-        dataset = datasets.load_dataset(
-            data_args.dataset_name,
-            data_args.dataset_config_name,
-        )
-    elif data_args.dataset_mixer:
-        dataset = mix_datasets(
-            data_args.dataset_mixer,
-            configs=data_args.dataset_config_name,
-            splits=["train"],
-            save_data_dir=data_args.dataset_mix_dir
-            if accelerator.is_main_process
-            else None,
-            columns_to_keep=["messages"],
-        )
-    elif data_args.dataset_mixer_list:
-        dataset = mix_datasets(
-            data_args.dataset_mixer_list,
-            configs=data_args.dataset_config_name,
-            splits=["train"],
-            save_data_dir=data_args.dataset_mix_dir
-            if accelerator.is_main_process
-            else None,
-            columns_to_keep=["messages"],
-        )
-    else:
-        data_files = {}
-        dataset_args = {}
-        if data_args.train_file is not None:
-            data_files["train"] = data_args.train_file
-        dataset = load_dataset(
-            "json",
-            data_files=data_files,
-            **dataset_args,
+    with accelerator.main_process_first():
+        train_dataset, dataset_format = load_sft_train_dataset(
+            data_args, seed=exp_args.seed if exp_args.seed is not None else 0
         )
 
-    if data_args.language_subset is not None:
-        # Filter the dataset to only include the specified language subset
-        if "train" in dataset:
-            dataset["train"] = dataset["train"].filter(
-                lambda example: example["language"] in data_args.language_subset
-            )
-        if "validation" in dataset:
-            dataset["validation"] = dataset["validation"].filter(
-                lambda example: example["language"] in data_args.language_subset
-            )
+    if data_args.dataset_mix_dir and accelerator.is_main_process:
+        train_dataset.save_to_disk(data_args.dataset_mix_dir)
+    accelerator.wait_for_everyone()
 
     # load pretrained model and tokenizer
     if model_args.config_name:
@@ -337,96 +337,69 @@ def main(args: ArgumentParserPlus):
     else:
         raise ValueError("You need to specify either a tokenizer name or a model name")
 
+    torch_dtype = (
+        model_args.torch_dtype
+        if model_args.torch_dtype == "auto"
+        else getattr(torch, model_args.torch_dtype)
+    )
+    attn_implementation = model_args.attn_implementation
+    if attn_implementation is None and exp_args.use_flash_attention:
+        attn_implementation = "flash_attention_2"
+
+    model_load_kwargs = {
+        "revision": model_args.model_revision,
+        "from_tf": bool(".ckpt" in model_args.model_name_or_path),
+        "config": config,
+        "trust_remote_code": model_args.trust_remote_code,
+        "torch_dtype": torch_dtype,
+    }
+    if attn_implementation is not None:
+        model_load_kwargs["attn_implementation"] = attn_implementation
+
     if model_args.model_name_or_path:
         if model_args.use_qlora:
             quantization_config = BitsAndBytesConfig(
                 load_in_4bit=True,
                 bnb_4bit_use_double_quant=True,
                 bnb_4bit_quant_type="nf4",
-                bnb_4bit_compute_dtype=torch.bfloat16,
+                bnb_4bit_compute_dtype=(
+                    {
+                        "bf16": torch.bfloat16,
+                        "fp16": torch.float16,
+                    }.get(accelerator.mixed_precision, torch.float32)
+                    if torch_dtype == "auto"
+                    else torch_dtype
+                ),
             )
             device_index = accelerator.local_process_index
             device_map = {"": device_index}  # force data-parallel training.
             model = AutoModelForCausalLM.from_pretrained(
                 model_args.model_name_or_path,
-                revision=model_args.model_revision,
-                from_tf=bool(".ckpt" in model_args.model_name_or_path),
-                config=config,
-                trust_remote_code=model_args.trust_remote_code,
                 quantization_config=quantization_config,
                 device_map=device_map,
-                torch_dtype=torch.bfloat16,
-                attn_implementation="flash_attention_2"
-                if exp_args.use_flash_attention
-                else "eager",
+                **model_load_kwargs,
             )
         else:
             model = AutoModelForCausalLM.from_pretrained(
                 model_args.model_name_or_path,
-                revision=model_args.model_revision,
-                from_tf=bool(".ckpt" in model_args.model_name_or_path),
-                config=config,
-                trust_remote_code=model_args.trust_remote_code,
-                attn_implementation="flash_attention_2"
-                if exp_args.use_flash_attention
-                else "eager",
+                **model_load_kwargs,
             )
     else:
         logger.info("Training from scratch, no weights or quantization needed")
         model = AutoModelForCausalLM.from_config(config)
 
-    # no default pad token for llama!
-    # here we add all special tokens again, because the default ones are not in the special_tokens_map
-    if isinstance(tokenizer, LlamaTokenizer) or isinstance(
-        tokenizer, LlamaTokenizerFast
-    ):
-        num_added_tokens = tokenizer.add_special_tokens(
-            {
-                "bos_token": "<s>",
-                "eos_token": "</s>",
-                "unk_token": "<unk>",
-                "pad_token": "<pad>",
-            }
-        )
-        assert num_added_tokens in [
-            0,
-            1,
-        ], (
-            "LlamaTokenizer should only add one special token - the pad_token, or no tokens if pad token present."
-        )
-    elif isinstance(tokenizer, GPTNeoXTokenizerFast):
-        # OLMo newer models use this tokenizer
-        if tokenizer.bos_token is None:
-            tokenizer.bos_token = tokenizer.eos_token
-            assert model_args.add_bos_token, (
-                "For OLMo with GPTNeoX, you must add bos token to the beginning of the input sequence."
-            )
-        # else, pythia / other models
+    if tokenizer.pad_token is None:
+        if tokenizer.eos_token is not None:
+            tokenizer.pad_token = tokenizer.eos_token
         else:
-            num_added_tokens = tokenizer.add_special_tokens(
-                {
-                    "pad_token": "<pad>",
-                }
-            )
-            assert num_added_tokens == 1, (
-                "GPTNeoXTokenizer should only add one special token - the pad_token."
-            )
-    elif isinstance(tokenizer, GPT2Tokenizer) and isinstance(model, OPTForCausalLM):
-        num_added_tokens = tokenizer.add_special_tokens({"unk_token": "<unk>"})
-    elif (
-        isinstance(tokenizer, transformers.PreTrainedTokenizerFast)
-        and tokenizer.pad_token is None
-    ):
-        num_added_tokens = tokenizer.add_special_tokens({"pad_token": "<pad>"})
-        assert num_added_tokens == 1, (
-            "We detected no padding token but add_special_tokens did not add one."
-        )
+            tokenizer.add_special_tokens({"pad_token": "<|pad|>"})
+    model.config.pad_token_id = tokenizer.pad_token_id
 
     # We resize the embeddings only when necessary to avoid index errors. If you are creating a model from scratch
     # on a small vocab and want a smaller embedding size, remove this test.
     # gather deepspeed to get "real" embedding size
     embeddings = model.get_input_embeddings()
-    with deepspeed.zero.GatheredParameters(embeddings.weight, modifier_rank=None):
+    with _gathered_parameters(embeddings.weight):
         embedding_size = embeddings.weight.shape[0]
 
     # resize does its own gather
@@ -435,7 +408,7 @@ def main(args: ArgumentParserPlus):
         model.resize_token_embeddings(len(tokenizer), pad_to_multiple_of=8)
     # update embedding size after resizing for sum loss
     embeddings = model.get_input_embeddings()
-    with deepspeed.zero.GatheredParameters(embeddings.weight, modifier_rank=None):
+    with _gathered_parameters(embeddings.weight):
         embedding_size = embeddings.weight.shape[0]
 
     # set the tokenizer chat template to the training format
@@ -443,19 +416,27 @@ def main(args: ArgumentParserPlus):
     # and saved together with the tokenizer to be used later.
     if data_args.chat_template_name in CHAT_TEMPLATES:
         tokenizer.chat_template = CHAT_TEMPLATES[data_args.chat_template_name]
-    else:
+    elif data_args.chat_template_name is not None:
         try:
             tokenizer.chat_template = AutoTokenizer.from_pretrained(
-                data_args.chat_template_name
+                data_args.chat_template_name,
+                trust_remote_code=model_args.trust_remote_code,
             ).chat_template
-        except Exception:
+        except Exception as error:
             raise ValueError(
                 f"Could not find chat template for {data_args.chat_template_name}."
-            )
+            ) from error
+    elif dataset_format == "conversational" and tokenizer.chat_template is None:
+        raise ValueError(
+            "Conversational data requires a tokenizer chat template. Set "
+            "chat_template_name or use a tokenizer that defines one."
+        )
 
     if model_args.add_bos_token:
+        if tokenizer.chat_template is None:
+            raise ValueError("add_bos_token requires a chat template")
         if tokenizer.chat_template.startswith("{{ bos_token }}") or (
-            tokenizer.add_bos_token is not None
+            tokenizer.bos_token is not None
             and tokenizer.chat_template.startswith(tokenizer.bos_token)
         ):
             raise ValueError(
@@ -477,7 +458,8 @@ def main(args: ArgumentParserPlus):
             r=model_args.lora_rank,
             lora_alpha=model_args.lora_alpha,
             lora_dropout=model_args.lora_dropout,
-            target_modules=[
+            target_modules=model_args.lora_target_modules
+            or [
                 "q_proj",
                 "o_proj",
                 "v_proj",
@@ -492,7 +474,6 @@ def main(args: ArgumentParserPlus):
     elif model_args.gradient_checkpointing:
         model.gradient_checkpointing_enable()
 
-    train_dataset = dataset["train"]
     # debugging tool for fewer samples
     if data_args.max_train_samples is not None:
         max_train_samples = min(len(train_dataset), data_args.max_train_samples)
@@ -507,6 +488,7 @@ def main(args: ArgumentParserPlus):
                 encode_sft_example,
                 tokenizer=tokenizer,
                 max_seq_length=data_args.max_seq_length,
+                dataset_format=dataset_format,
                 mask_instructions=exp_args.mask_instructions,
             ),
             batched=False,
@@ -525,8 +507,11 @@ def main(args: ArgumentParserPlus):
             lambda example: (example["labels"] != -100).any()
         )
 
+    if len(train_dataset) == 0:
+        raise ValueError("No trainable tokens remain after tokenization and masking.")
+
     # Log a few random samples from the training set:
-    for index in random.sample(range(len(train_dataset)), 3):
+    for index in random.sample(range(len(train_dataset)), min(3, len(train_dataset))):
         logger.info(f"Sample {index} of the training set: {train_dataset[index]}.")
 
     # DataLoaders creation:
@@ -645,21 +630,25 @@ def main(args: ArgumentParserPlus):
         # TensorBoard cannot log Enums, need the raw value
         experiment_config["lr_scheduler_type"] = experiment_config["lr_scheduler_type"]
 
-        if exp_args.wandb_entity is None:
-            raise ValueError("Please provide a wandb entity.")
+        init_kwargs = {}
+        report_targets = (
+            [exp_args.report_to]
+            if isinstance(exp_args.report_to, str)
+            else exp_args.report_to
+        )
+        if "wandb" in report_targets:
+            init_kwargs["wandb"] = {
+                "name": exp_args.run_name,
+                "tags": [exp_args.exp_name],
+            }
+            if exp_args.wandb_entity is not None:
+                init_kwargs["wandb"]["entity"] = exp_args.wandb_entity
 
         accelerator.init_trackers(
-            exp_args.wandb_project_name,
+            exp_args.wandb_project_name or exp_args.project_name or exp_args.exp_name,
             all_config,
-            init_kwargs={
-                "wandb": {
-                    "name": exp_args.run_name,
-                    "entity": exp_args.wandb_entity,
-                    "tags": [exp_args.exp_name],
-                }
-            },
+            init_kwargs=init_kwargs,
         )
-        wandb_tracker = accelerator.get_tracker("wandb")
 
     # Train!
     total_batch_size = (
@@ -766,9 +755,9 @@ def main(args: ArgumentParserPlus):
                     # Enable model parallelism
                     shift_labels = shift_labels.to(shift_logits.device)
                     loss = loss_fct(shift_logits, shift_labels)
-                    if exp_args.load_balancing_loss:
-                        aux_loss = exp_args.load_balancing_weight * outputs.aux_loss
-                        loss += aux_loss
+                if exp_args.load_balancing_loss:
+                    aux_loss = exp_args.load_balancing_weight * outputs.aux_loss
+                    loss += aux_loss
 
                 # We keep track of the loss at each logged step
                 total_loss += loss.detach().float()
@@ -836,29 +825,20 @@ def main(args: ArgumentParserPlus):
                     total_loss = 0
                     total_aux_loss = 0
 
+                if (
+                    isinstance(checkpointing_steps, int)
+                    and checkpointing_steps > 0
+                    and completed_steps % checkpointing_steps == 0
+                ):
+                    save_training_checkpoint(
+                        accelerator, exp_args, f"step_{completed_steps}"
+                    )
+
                 if completed_steps >= exp_args.max_train_steps:
                     break
 
         if checkpointing_steps == "epoch":
-            output_dir = f"epoch_{epoch}"
-            if exp_args.output_dir is not None:
-                output_dir = os.path.join(exp_args.output_dir, output_dir)
-            accelerator.save_state(output_dir)
-            # use this to mark the checkpoint as completely saved, to avoid restoring from garbled checkpoints
-            with open(
-                os.path.join(
-                    get_last_checkpoint_path(exp_args, incomplete=True), "COMPLETED"
-                ),
-                "w",
-            ) as f:
-                f.write(
-                    "COMPLETED"
-                )  # annoyingly, empty files arent uploaded by beaker.
-            if accelerator.is_local_main_process:
-                clean_last_n_checkpoints(
-                    exp_args.output_dir, exp_args.keep_last_n_checkpoints
-                )
-            accelerator.wait_for_everyone()
+            save_training_checkpoint(accelerator, exp_args, f"epoch_{epoch}")
 
     if exp_args.output_dir is not None:
         save_with_accelerate(
@@ -868,10 +848,6 @@ def main(args: ArgumentParserPlus):
             exp_args.output_dir,
             model_args.use_lora,
         )
-
-    # remove all checkpoints to save space
-    if accelerator.is_local_main_process:
-        clean_last_n_checkpoints(exp_args.output_dir, keep_last_n_checkpoints=0)
 
     if accelerator.is_main_process:
         # dpo script only supports these two options right now for datasets
@@ -886,12 +862,26 @@ def main(args: ArgumentParserPlus):
 
         # mainly just focussing here on what would be useful for the leaderboard.
         # wandb will have even more useful information.
+        wandb_path = None
+        if exp_args.with_tracking:
+            report_targets = (
+                [exp_args.report_to]
+                if isinstance(exp_args.report_to, str)
+                else exp_args.report_to
+            )
+            if "wandb" in report_targets:
+                wandb_path = accelerator.get_tracker("wandb").run.get_url()
+
         metadata_blob = {
             "model_name": exp_args.exp_name,
             "model_type": "sft",
             "datasets": dataset_list,
             "base_model": model_args.model_name_or_path,
-            "wandb_path": wandb_tracker.run.get_url(),
+            "model_revision": model_args.model_revision,
+            "dataset_revision": data_args.dataset_revision,
+            "dataset_format": dataset_format,
+            "seed": exp_args.seed,
+            "wandb_path": wandb_path,
         }
         # save metadata to the output directory. then it should also get pushed to HF.
         with open(os.path.join(exp_args.output_dir, "metadata.json"), "w") as f:
@@ -912,6 +902,7 @@ def main(args: ArgumentParserPlus):
             exp_args.output_dir,
             exp_args.hf_repo_id,
             exp_args.hf_repo_revision,
+            private=exp_args.hf_private_repo,
         )
 
     accelerator.wait_for_everyone()

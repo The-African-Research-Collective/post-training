@@ -4,7 +4,7 @@ import json
 import shutil
 import sys
 from dataclasses import dataclass
-from typing import List, Optional, Union, Tuple, Any, NewType
+from typing import Any, List, NewType, Optional, Tuple, Union, get_args, get_origin
 
 from accelerate import Accelerator
 from accelerate.logging import get_logger
@@ -19,6 +19,23 @@ logger = get_logger(__name__)
 
 
 class ArgumentParserPlus(HfArgumentParser):
+    @staticmethod
+    def _cast_override(field_type, value: str):
+        type_args = get_args(field_type)
+        if type(None) in type_args:
+            field_type = next(arg for arg in type_args if arg is not type(None))
+
+        if field_type is bool:
+            normalized = value.lower()
+            if normalized not in {"true", "false"}:
+                raise ValueError(f"Boolean overrides must be true or false, got {value!r}")
+            return normalized == "true"
+        if field_type in {int, float, str}:
+            return field_type(value)
+        if get_origin(field_type) is list:
+            return [item for item in value.split(",") if item]
+        return value
+
     def parse_yaml_and_args(
         self, yaml_arg: str, other_args: Optional[List[str]] = None
     ) -> List[dataclass]:
@@ -38,47 +55,43 @@ class ArgumentParserPlus(HfArgumentParser):
 
         outputs = []
         # strip other args list into dict of key-value pairs
-        other_args = {
-            arg.split("=")[0].strip("-"): arg.split("=")[1] for arg in other_args
-        }
-        used_args = {}
+        parsed_args = {}
+        for raw_arg in other_args:
+            if not raw_arg.startswith("--") or "=" not in raw_arg:
+                raise ValueError(
+                    f"Config overrides must use --name=value syntax, got {raw_arg!r}"
+                )
+            name, _, value = raw_arg[2:].partition("=")
+            if name in parsed_args:
+                raise ValueError(f"Duplicate override provided: {name}")
+            parsed_args[name] = value
+
+        used_args = set()
 
         # overwrite the default/loaded value with the value provided to the command line
         # noqa adapted from https://github.com/huggingface/transformers/blob/d0b5002378daabf62769159add3e7d66d3f83c3b/src/transformers/hf_argparser.py#L327
         for data_yaml, data_class in zip(arg_list, self.dataclass_types):
             keys = {f.name for f in dataclasses.fields(data_yaml) if f.init}
             inputs = {k: v for k, v in vars(data_yaml).items() if k in keys}
-            for arg, val in other_args.items():
+            for arg, val in parsed_args.items():
                 # add only if in keys
 
                 if arg in keys:
                     base_type = data_yaml.__dataclass_fields__[arg].type
-                    inputs[arg] = val
+                    inputs[arg] = self._cast_override(base_type, val)
 
-                    # cast type for ints, floats (default to strings)
-                    if base_type in [int, float]:
-                        inputs[arg] = base_type(val)
-
-                    if base_type == List[str]:
-                        inputs[arg] = [str(v) for v in val.split(",")]
-
-                    # bool of a non-empty string is True, so we manually check for bools
-                    if base_type is bool:
-                        if val in ["true", "True"]:
-                            inputs[arg] = True
-                        else:
-                            inputs[arg] = False
-
-                    # add to used-args so we can check if double add
-                    if arg not in used_args:
-                        used_args[arg] = val
-                    else:
+                    if arg in used_args:
                         raise ValueError(
-                            f"Duplicate argument provided: {arg}, may cause unexpected behavior"
+                            f"Override {arg!r} matches more than one argument class"
                         )
+                    used_args.add(arg)
 
             obj = data_class(**inputs)
             outputs.append(obj)
+
+        unknown_args = set(parsed_args) - used_args
+        if unknown_args:
+            raise ValueError(f"Unknown config overrides: {sorted(unknown_args)}")
 
         return outputs
 
@@ -502,7 +515,7 @@ def get_last_checkpoint(folder: str, incomplete: bool = False) -> Optional[str]:
         ]
     if len(checkpoints) == 0:
         return
-    return os.path.join(folder, max(checkpoints, key=lambda x: x.split("_")[-1]))
+    return os.path.join(folder, max(checkpoints, key=lambda x: int(x.split("_")[-1])))
 
 
 def get_last_checkpoint_path(args, incomplete: bool = False) -> str:
@@ -511,7 +524,13 @@ def get_last_checkpoint_path(args, incomplete: bool = False) -> str:
     # else, start from scratch.
     # if incomplete is true, include folders without "COMPLETE" in the folder.
     last_checkpoint_path = None
-    if (
+    if args.resume_from_checkpoint:
+        last_checkpoint_path = args.resume_from_checkpoint
+        if not os.path.isdir(last_checkpoint_path):
+            raise ValueError(
+                f"Requested checkpoint does not exist: {last_checkpoint_path}"
+            )
+    elif (
         args.output_dir
         and os.path.isdir(args.output_dir)
         and not args.overwrite_output_dir
@@ -523,8 +542,6 @@ def get_last_checkpoint_path(args, incomplete: bool = False) -> str:
             logger.warning(
                 "Output directory exists but no checkpoint found. Starting from scratch."
             )
-    elif args.resume_from_checkpoint:
-        last_checkpoint_path = args.resume_from_checkpoint
     return last_checkpoint_path
 
 

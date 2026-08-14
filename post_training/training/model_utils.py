@@ -3,7 +3,7 @@ from typing import Optional
 
 import torch
 from accelerate import Accelerator
-from trl import ModelConfig, get_quantization_config
+from trl import ModelConfig, get_kbit_device_map, get_quantization_config
 from transformers import GenerationConfig, PreTrainedModel, PreTrainedTokenizer, AutoTokenizer, AutoModelForCausalLM
 
 from post_training.training.grpo_args import GRPOConfig
