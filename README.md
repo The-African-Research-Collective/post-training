@@ -55,6 +55,23 @@ scripts/run_sft.sh \
   configs/deep_speed/stage3_offloading_accelerate.conf
 ```
 
+Select FSDP explicitly for multi-GPU full parameter sharding. The launcher uses
+transformer-layer auto wrapping, rank-zero model loading, synchronized module
+initialization, original parameters for LoRA compatibility, and a consolidated
+full state dict for portable final artifacts:
+
+```bash
+DISTRIBUTED_BACKEND=fsdp scripts/run_sft.sh \
+  configs/models/dummy_sft_lora.yaml \
+  2 \
+  bf16
+```
+
+`FSDP_SHARDING_STRATEGY` defaults to `FULL_SHARD` and also accepts
+`SHARD_GRAD_OP`, `HYBRID_SHARD`, or `HYBRID_SHARD_ZERO2`. QLoRA remains a
+DeepSpeed or single-process workflow; FSDP supports full fine-tuning and LoRA
+without 4-bit quantization.
+
 `CUDA_VISIBLE_DEVICES` is inherited from the caller. Flash Attention remains an
 optional system-level optimization because its installation depends on the CUDA
 toolchain; set `use_flash_attention: false` or `attn_implementation: sdpa` when
@@ -80,6 +97,18 @@ uv run modal run --detach -m post_training.training.modal_sft \
   --config configs/models/dummy_sft_lora.yaml \
   --gpu A100-80GB \
   --num-gpus 1 \
+  --secret post-training \
+  --overrides="--use_flash_attention=false --attn_implementation=sdpa"
+```
+
+For FSDP on Modal, request at least two GPUs and select the backend explicitly:
+
+```bash
+uv run modal run --detach -m post_training.training.modal_sft \
+  --config configs/models/dummy_sft_lora.yaml \
+  --gpu A100-80GB \
+  --num-gpus 2 \
+  --distributed-backend fsdp \
   --secret post-training \
   --overrides="--use_flash_attention=false --attn_implementation=sdpa"
 ```

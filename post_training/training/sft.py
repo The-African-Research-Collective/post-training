@@ -278,6 +278,15 @@ def main(args: ArgumentParserPlus):
         kwargs_handlers=[timeout_kwargs],
     )
 
+    if (
+        accelerator.distributed_type == DistributedType.FSDP
+        and model_args.use_qlora
+    ):
+        raise ValueError(
+            "QLoRA with FSDP is not supported by this workflow. "
+            "Use full fine-tuning, LoRA without 4-bit quantization, or DeepSpeed."
+        )
+
     # Make one log on every process with the configuration for debugging.
     logging.basicConfig(
         format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
@@ -649,6 +658,13 @@ def main(args: ArgumentParserPlus):
         modelling_args = vars(model_args)
 
         all_config = {**experiment_config, **dataset_args, **modelling_args}
+        all_config.update(
+            {
+                "distributed_type": accelerator.distributed_type.value,
+                "num_processes": accelerator.num_processes,
+                "mixed_precision": accelerator.mixed_precision,
+            }
+        )
 
         # TensorBoard cannot log Enums, need the raw value
         experiment_config["lr_scheduler_type"] = experiment_config["lr_scheduler_type"]
@@ -914,6 +930,9 @@ def main(args: ArgumentParserPlus):
             "dataset_revision": data_args.dataset_revision,
             "dataset_format": dataset_format,
             "seed": exp_args.seed,
+            "distributed_type": accelerator.distributed_type.value,
+            "num_processes": accelerator.num_processes,
+            "mixed_precision": accelerator.mixed_precision,
             "wandb_path": wandb_path,
             "trackio_project": trackio_project,
             "trackio_space_id": trackio_space_id,
