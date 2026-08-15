@@ -95,7 +95,7 @@ with `--secret`. A Trackio Space requires an `HF_TOKEN` with write permission.
 ```bash
 uv run modal run --detach -m post_training.training.modal_sft \
   --config configs/models/dummy_sft_lora.yaml \
-  --gpu A100-80GB \
+  --gpu A10G \
   --num-gpus 1 \
   --secret post-training \
   --overrides="--use_flash_attention=false --attn_implementation=sdpa"
@@ -106,7 +106,7 @@ For FSDP on Modal, request at least two GPUs and select the backend explicitly:
 ```bash
 uv run modal run --detach -m post_training.training.modal_sft \
   --config configs/models/dummy_sft_lora.yaml \
-  --gpu A100-80GB \
+  --gpu A10G \
   --num-gpus 2 \
   --distributed-backend fsdp \
   --secret post-training \
@@ -140,7 +140,7 @@ example logs the 32-sample math smoke run to an existing Space; replace
 ```bash
 uv run modal run --detach -m post_training.training.modal_sft \
   --config configs/models/dummy_sft_lora.yaml \
-  --gpu A100-80GB \
+  --gpu A10G \
   --num-gpus 1 \
   --secret post-training \
   --overrides="--dataset_name=taresco/challenging_math_10k_samples_gpt4_generated --max_train_samples=32 --num_train_epochs=1 --push_to_hub=false --with_tracking=true --report_to=trackio --trackio_project_name=post-training --trackio_space_id=<owner>/<space> --exp_name=challenging_math_modal_smoke --run_name=challenging_math_modal_smoke"

@@ -180,7 +180,7 @@ def _read_optional_file(path: str) -> str | None:
 @app.local_entrypoint()
 def main(
     config: str,
-    gpu: str = "A100-80GB",
+    gpu: str = "A10G",
     num_gpus: int = 1,
     precision: str = "bf16",
     timeout: int = MAX_TIMEOUT_SECONDS,
