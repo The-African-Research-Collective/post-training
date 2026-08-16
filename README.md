@@ -101,6 +101,23 @@ uv run modal run --detach -m post_training.training.modal_sft \
   --overrides="--use_flash_attention=false --attn_implementation=sdpa"
 ```
 
+Modal model publication is disabled by default, even when the YAML configuration
+sets `push_to_hub: true`. To publish the final model or LoRA adapter, use the
+explicit `--push-to-hub` flag and a Modal secret containing a write-enabled
+`HF_TOKEN`. Set `hf_repo_id`, `hf_repo_revision`, and `hf_private_repo` in the
+YAML file or through overrides. Newly created repositories remain private by
+default.
+
+```bash
+uv run modal run --detach -m post_training.training.modal_sft \
+  --config configs/models/dummy_sft_lora.yaml \
+  --gpu A10G \
+  --num-gpus 1 \
+  --secret post-training \
+  --push-to-hub \
+  --overrides="--hf_repo_id=<owner>/<repo> --hf_repo_revision=main"
+```
+
 For FSDP on Modal, request at least two GPUs and select the backend explicitly:
 
 ```bash
@@ -143,7 +160,7 @@ uv run modal run --detach -m post_training.training.modal_sft \
   --gpu A10G \
   --num-gpus 1 \
   --secret post-training \
-  --overrides="--dataset_name=taresco/challenging_math_10k_samples_gpt4_generated --max_train_samples=32 --num_train_epochs=1 --push_to_hub=false --with_tracking=true --report_to=trackio --trackio_project_name=post-training --trackio_space_id=<owner>/<space> --exp_name=challenging_math_modal_smoke --run_name=challenging_math_modal_smoke"
+  --overrides="--dataset_name=taresco/challenging_math_10k_samples_gpt4_generated --max_train_samples=32 --num_train_epochs=1 --with_tracking=true --report_to=trackio --trackio_project_name=post-training --trackio_space_id=<owner>/<space> --exp_name=challenging_math_modal_smoke --run_name=challenging_math_modal_smoke"
 ```
 
 Use `--report_to=trackio,wandb` to log to both backends. Trackio is pinned to

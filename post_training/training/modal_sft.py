@@ -185,6 +185,7 @@ def main(
     precision: str = "bf16",
     timeout: int = MAX_TIMEOUT_SECONDS,
     secret: str = "",
+    push_to_hub: bool = False,
     deepspeed_config: str = "",
     distributed_backend: str = "auto",
     fsdp_sharding_strategy: str = "FULL_SHARD",
@@ -197,6 +198,11 @@ def main(
         raise ValueError("precision must be one of: no, fp16, bf16, fp8")
     if timeout < 10 or timeout > MAX_TIMEOUT_SECONDS:
         raise ValueError("timeout must be between 10 and 86400 seconds")
+    if push_to_hub and not secret:
+        raise ValueError(
+            "--push-to-hub requires --secret containing a write-enabled "
+            "HF_TOKEN"
+        )
     if fsdp_sharding_strategy not in {
         "FULL_SHARD",
         "SHARD_GRAD_OP",
@@ -226,6 +232,13 @@ def main(
             "Overrides must use --name=value syntax: "
             + ", ".join(invalid_overrides)
         )
+    if any(
+        value.partition("=")[0] == "--push_to_hub" for value in parsed_overrides
+    ):
+        raise ValueError(
+            "Use the Modal --push-to-hub flag instead of a push_to_hub override"
+        )
+    parsed_overrides.append(f"--push_to_hub={str(push_to_hub).lower()}")
 
     gpu_request = gpu if num_gpus == 1 else f"{gpu}:{num_gpus}"
     secrets = [modal.Secret.from_name(secret)] if secret else []
