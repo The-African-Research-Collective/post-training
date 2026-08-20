@@ -5,37 +5,41 @@ description = "Low-level, reusable post-training research workflows."
 readme = "README.md"
 requires-python = ">=3.10,<3.13"
 dependencies = [
-    "accelerate>=1.2.0,<2",
-    "datasets>=3.1.0,<4",
-    "datasketch>=1.6.5,<2",
-    "deep-translator>=1.11.4,<2",
-    "diskcache>=5.6.3,<6",
-    "evaluate>=0.4.3,<0.5",
-    "jsonlines>=4.0.0,<5",
-    "litellm>=1.53.9,<2",
-    "loguru>=0.7.3,<0.8",
-    "math-verify>=0.7.0,<0.8",
-    "peft>=0.14.0,<0.15",
-    "python-dotenv>=1.0.1,<2",
-    "sacrebleu>=2.5.1,<3",
-    "tenacity>=9.0.0,<10",
-    "torch>=2.6.0,<3",
-    "transformers>=4.49.0,<5",
-    "trl>=0.17.0,<0.18",
-    "typer>=0.15.1,<0.16",
+    "accelerate==1.2.1",
+    "datasets==3.2.0",
+    "datasketch==1.6.5",
+    "deep-translator==1.11.4",
+    "diskcache==5.6.3",
+    "evaluate==0.4.3",
+    "jsonlines==4.0.0",
+    "litellm==1.56.4",
+    "loguru==0.7.3",
+    "math-verify==0.7.0",
+    "peft==0.14.0",
+    "python-dotenv==1.0.1",
+    "pyyaml==6.0.3",
+    "sacrebleu==2.5.1",
+    "tenacity==9.0.0",
+    "torch==2.6.0",
+    "transformers==4.49.0",
+    "trl==0.17.0",
+    "typer==0.15.1",
 ]
 
 [project.optional-dependencies]
 gpu = [
-    "bitsandbytes>=0.45.2,<0.46; sys_platform == 'linux'",
+    "bitsandbytes==0.45.5; sys_platform == 'linux'",
     "deepspeed==0.15.4; sys_platform == 'linux'",
 ]
-tracking = ["wandb>=0.19.7,<0.20"]
-modal = ["modal>=1.2.3,<2"]
+tracking = ["trackio==0.20.2", "wandb==0.19.11"]
+modal = ["modal==1.5.4"]
+vllm = [
+    "vllm==0.8.2; python_version < '3.12' and sys_platform == 'linux' and platform_machine == 'x86_64'",
+]
 dev = [
-    "ipykernel>=6.29.5,<7",
-    "ipywidgets>=8.1.5,<9",
-    "pre-commit>=4.1.0,<5",
+    "ipykernel==6.29.5",
+    "ipywidgets==8.1.5",
+    "pre-commit==4.1.0",
 ]
 
 [build-system]
@@ -44,6 +48,13 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["post_training"]
+
+[tool.uv]
+# vLLM 0.8.2 pins an xgrammar release that is no longer available on PyPI.
+# 0.1.17 is the immediate compatible patch used by vLLM 0.8.3.
+override-dependencies = [
+    "xgrammar==0.1.17; platform_machine == 'aarch64' or platform_machine == 'x86_64'",
+]
 
 [tool.ruff]
 extend-exclude = ["src/data/persona_generation/prompt_template.py"]

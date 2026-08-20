@@ -11,6 +11,9 @@ NUM_GPUS=${2:-1}
 TRAINING_PRECISION=${3:-bf16}
 DEEPSPEED_CONFIG=${4:-}
 MAIN_PROCESS_PORT=${MAIN_PROCESS_PORT:-29501}
+DISTRIBUTED_BACKEND=${DISTRIBUTED_BACKEND:-auto}
+FSDP_SHARDING_STRATEGY=${FSDP_SHARDING_STRATEGY:-FULL_SHARD}
+TRAINING_MODULE=${TRAINING_MODULE:-sft}
 
 # Accelerate calls full precision "no". Keep fp32 as a readable alias.
 if [[ $TRAINING_PRECISION == "fp32" ]]; then
@@ -40,15 +43,60 @@ COMMAND=(
     --main_process_port "$MAIN_PROCESS_PORT"
 )
 
-if [[ -n $DEEPSPEED_CONFIG ]]; then
+if [[ $DISTRIBUTED_BACKEND == "auto" ]]; then
+    if [[ -n $DEEPSPEED_CONFIG ]]; then
+        DISTRIBUTED_BACKEND=deepspeed
+    elif (( NUM_GPUS > 1 )); then
+        DISTRIBUTED_BACKEND=ddp
+    else
+        DISTRIBUTED_BACKEND=single
+    fi
+fi
+
+if [[ $DISTRIBUTED_BACKEND == "deepspeed" ]]; then
+    if [[ -z $DEEPSPEED_CONFIG ]]; then
+        echo "DISTRIBUTED_BACKEND=deepspeed requires a DeepSpeed config as the fourth argument."
+        exit 1
+    fi
     if [[ ! -f $DEEPSPEED_CONFIG ]]; then
         echo "DeepSpeed config not found: $DEEPSPEED_CONFIG"
         exit 1
     fi
     COMMAND+=(--use_deepspeed --deepspeed_config_file "$DEEPSPEED_CONFIG")
-elif (( NUM_GPUS > 1 )); then
+elif [[ -n $DEEPSPEED_CONFIG ]]; then
+    echo "A DeepSpeed config can only be used with DISTRIBUTED_BACKEND=auto or deepspeed."
+    exit 1
+elif [[ $DISTRIBUTED_BACKEND == "fsdp" ]]; then
+    if (( NUM_GPUS < 2 )); then
+        echo "DISTRIBUTED_BACKEND=fsdp requires at least two GPUs."
+        exit 1
+    fi
+    case $FSDP_SHARDING_STRATEGY in
+        FULL_SHARD|SHARD_GRAD_OP|HYBRID_SHARD|HYBRID_SHARD_ZERO2) ;;
+        *)
+            echo "Invalid FSDP_SHARDING_STRATEGY: $FSDP_SHARDING_STRATEGY"
+            exit 1
+            ;;
+    esac
+    COMMAND+=(
+        --use_fsdp
+        --fsdp_sharding_strategy "$FSDP_SHARDING_STRATEGY"
+        --fsdp_auto_wrap_policy TRANSFORMER_BASED_WRAP
+        --fsdp_state_dict_type FULL_STATE_DICT
+        --fsdp_use_orig_params true
+        --fsdp_cpu_ram_efficient_loading true
+        --fsdp_sync_module_states true
+    )
+elif [[ $DISTRIBUTED_BACKEND == "ddp" ]]; then
+    if (( NUM_GPUS < 2 )); then
+        echo "DISTRIBUTED_BACKEND=ddp requires at least two GPUs."
+        exit 1
+    fi
     COMMAND+=(--multi_gpu)
+elif [[ $DISTRIBUTED_BACKEND != "single" ]]; then
+    echo "Invalid DISTRIBUTED_BACKEND: $DISTRIBUTED_BACKEND. Choose auto, single, ddp, deepspeed, or fsdp."
+    exit 1
 fi
 
-echo "Training with $NUM_GPUS GPU process(es); CUDA visibility is inherited."
-exec "${COMMAND[@]}" -m post_training.training.sft "$CONFIG"
+echo "Training $TRAINING_MODULE with $NUM_GPUS GPU process(es) using $DISTRIBUTED_BACKEND; CUDA visibility is inherited."
+exec "${COMMAND[@]}" -m "post_training.training.$TRAINING_MODULE" "$CONFIG"

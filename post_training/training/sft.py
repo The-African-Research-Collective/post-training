@@ -18,7 +18,12 @@ from datetime import timedelta
 import datasets
 import torch
 import transformers
-from accelerate.utils import InitProcessGroupKwargs, set_seed, DataLoaderConfiguration
+from accelerate.utils import (
+    DataLoaderConfiguration,
+    DistributedType,
+    InitProcessGroupKwargs,
+    set_seed,
+)
 from accelerate import Accelerator
 from accelerate.logging import get_logger
 from peft import LoraConfig, TaskType, get_peft_model, prepare_model_for_kbit_training
@@ -51,15 +56,12 @@ from post_training.training.sft_args import (
 logger = get_logger(__name__)
 
 
-try:
-    import deepspeed
-except ImportError:  # DeepSpeed is optional for single-process training.
-    deepspeed = None
-
-
-def _gathered_parameters(parameter):
-    if deepspeed is None:
+def _gathered_parameters(parameter, accelerator):
+    if accelerator.distributed_type != DistributedType.DEEPSPEED:
         return nullcontext()
+
+    import deepspeed
+
     return deepspeed.zero.GatheredParameters(parameter, modifier_rank=None)
 
 
@@ -224,7 +226,10 @@ def main(args: ArgumentParserPlus):
 
     exp_args.output_dir = os.path.join(exp_args.output_dir, exp_args.exp_name)
 
-    exp_args.run_name = f"{exp_args.exp_name}__{exp_args.seed}__{int(time.time())}"
+    if exp_args.run_name is None:
+        exp_args.run_name = (
+            f"{exp_args.exp_name}__{exp_args.seed}__{int(time.time())}"
+        )
     if exp_args.push_to_hub:
         exp_args.run_name = f"{exp_args.run_name}__hub"
 
@@ -240,7 +245,25 @@ def main(args: ArgumentParserPlus):
     accelerator_log_kwargs = {}
 
     if exp_args.with_tracking:
-        accelerator_log_kwargs["log_with"] = exp_args.report_to
+        log_with = [
+            target for target in exp_args.report_to if target != "trackio"
+        ]
+        if "trackio" in exp_args.report_to:
+            from post_training.training.trackio_tracker import TrackioTracker
+
+            log_with.append(
+                TrackioTracker(
+                    project=(
+                        exp_args.trackio_project_name
+                        or exp_args.project_name
+                        or exp_args.exp_name
+                    ),
+                    run_name=exp_args.run_name,
+                    group=exp_args.exp_name,
+                    space_id=exp_args.trackio_space_id,
+                )
+            )
+        accelerator_log_kwargs["log_with"] = log_with
         accelerator_log_kwargs["project_dir"] = exp_args.output_dir
 
     # if you get timeouts (e.g. due to long tokenization) increase this.
@@ -254,6 +277,15 @@ def main(args: ArgumentParserPlus):
         **accelerator_log_kwargs,
         kwargs_handlers=[timeout_kwargs],
     )
+
+    if (
+        accelerator.distributed_type == DistributedType.FSDP
+        and model_args.use_qlora
+    ):
+        raise ValueError(
+            "QLoRA with FSDP is not supported by this workflow. "
+            "Use full fine-tuning, LoRA without 4-bit quantization, or DeepSpeed."
+        )
 
     # Make one log on every process with the configuration for debugging.
     logging.basicConfig(
@@ -399,7 +431,7 @@ def main(args: ArgumentParserPlus):
     # on a small vocab and want a smaller embedding size, remove this test.
     # gather deepspeed to get "real" embedding size
     embeddings = model.get_input_embeddings()
-    with _gathered_parameters(embeddings.weight):
+    with _gathered_parameters(embeddings.weight, accelerator):
         embedding_size = embeddings.weight.shape[0]
 
     # resize does its own gather
@@ -408,7 +440,7 @@ def main(args: ArgumentParserPlus):
         model.resize_token_embeddings(len(tokenizer), pad_to_multiple_of=8)
     # update embedding size after resizing for sum loss
     embeddings = model.get_input_embeddings()
-    with _gathered_parameters(embeddings.weight):
+    with _gathered_parameters(embeddings.weight, accelerator):
         embedding_size = embeddings.weight.shape[0]
 
     # set the tokenizer chat template to the training format
@@ -626,6 +658,13 @@ def main(args: ArgumentParserPlus):
         modelling_args = vars(model_args)
 
         all_config = {**experiment_config, **dataset_args, **modelling_args}
+        all_config.update(
+            {
+                "distributed_type": accelerator.distributed_type.value,
+                "num_processes": accelerator.num_processes,
+                "mixed_precision": accelerator.mixed_precision,
+            }
+        )
 
         # TensorBoard cannot log Enums, need the raw value
         experiment_config["lr_scheduler_type"] = experiment_config["lr_scheduler_type"]
@@ -863,6 +902,8 @@ def main(args: ArgumentParserPlus):
         # mainly just focussing here on what would be useful for the leaderboard.
         # wandb will have even more useful information.
         wandb_path = None
+        trackio_project = None
+        trackio_space_id = None
         if exp_args.with_tracking:
             report_targets = (
                 [exp_args.report_to]
@@ -871,9 +912,17 @@ def main(args: ArgumentParserPlus):
             )
             if "wandb" in report_targets:
                 wandb_path = accelerator.get_tracker("wandb").run.get_url()
+            if "trackio" in report_targets:
+                trackio_project = (
+                    exp_args.trackio_project_name
+                    or exp_args.project_name
+                    or exp_args.exp_name
+                )
+                trackio_space_id = exp_args.trackio_space_id
 
         metadata_blob = {
             "model_name": exp_args.exp_name,
+            "run_name": exp_args.run_name,
             "model_type": "sft",
             "datasets": dataset_list,
             "base_model": model_args.model_name_or_path,
@@ -881,7 +930,12 @@ def main(args: ArgumentParserPlus):
             "dataset_revision": data_args.dataset_revision,
             "dataset_format": dataset_format,
             "seed": exp_args.seed,
+            "distributed_type": accelerator.distributed_type.value,
+            "num_processes": accelerator.num_processes,
+            "mixed_precision": accelerator.mixed_precision,
             "wandb_path": wandb_path,
+            "trackio_project": trackio_project,
+            "trackio_space_id": trackio_space_id,
         }
         # save metadata to the output directory. then it should also get pushed to HF.
         with open(os.path.join(exp_args.output_dir, "metadata.json"), "w") as f:
