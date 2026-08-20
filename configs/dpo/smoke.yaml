@@ -4,8 +4,8 @@ model_revision: main
 torch_dtype: bfloat16
 attn_implementation: sdpa
 
-dataset_name: trl-lib/ultrafeedback_binarized
-dataset_train_split: train
+dataset_name: HuggingFaceH4/ultrafeedback_binarized
+dataset_train_split: train_prefs
 max_train_samples: 32
 prompt_column: prompt
 chosen_column: chosen
