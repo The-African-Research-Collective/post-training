@@ -263,6 +263,10 @@ def train_vllm(
     gpu_ids = _visible_gpu_ids(num_gpus + rollout_gpus)
     server_environment = os.environ.copy()
     server_environment["CUDA_VISIBLE_DEVICES"] = ",".join(gpu_ids[:rollout_gpus])
+    # TRL 0.17's weight-sync extension calls vLLM's V0 model_executor API.
+    # vLLM 0.8.2 otherwise selects V1 for supported models and the server-side
+    # communicator fails before the trainer can connect.
+    server_environment["VLLM_USE_V1"] = "0"
     trainer_environment = os.environ.copy()
     trainer_environment["CUDA_VISIBLE_DEVICES"] = ",".join(gpu_ids[rollout_gpus:])
 
