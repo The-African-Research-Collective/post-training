@@ -13,13 +13,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Reward functions for GRPO training."""
+"""Reward functions for GRPO training.
+
+This repository adds importable custom rewards and avoids logging prompt or
+completion contents during verification failures.
+"""
 
 import math
 import re
+import logging
+from importlib import import_module
 from typing import Callable, Dict, Optional
 
 from math_verify import verify, parse
+
+
+logger = logging.getLogger(__name__)
 
 
 def extract_answer_from_completion_tag(text):
@@ -32,8 +41,6 @@ def extract_answer_from_completion_tag(text):
     Returns:
         str: The content between the tags, or None if tags aren't found
     """
-    import re
-
     pattern = r"<answer>(.*?)</answer>"
     match = re.search(pattern, text, re.DOTALL)
 
@@ -65,32 +72,26 @@ def accuracy_reward(
         gold_parsed = extract_answer_from_completion(sol)
 
         if len(gold_parsed) != 0:
-            # We require the answer to be provided in correct latex (no malformed operators)
+            # The verifier expects well-formed mathematical notation.
             answer_parsed = extract_answer_from_completion(content)
-            print("Answer parsed: ", answer_parsed)
-            print("Content: ", content)
-            print("GOld Parsed: ", gold_parsed)
-            # Compute binary rewards if verifiable, `None` otherwise to skip this example
+            # Return None when the example cannot be verified.
             try:
                 reward = float(verify(parse(gold_parsed), parse(answer_parsed)))
-            except Exception as e:
-                print(
-                    f"verify failed: {e}, answer: {answer_parsed}, gold: {gold_parsed}"
-                )
+            except Exception as error:
+                logger.debug("Math verification failed: %s", type(error).__name__)
                 reward = None
         else:
-            # If the gold solution is not parseable, we assign `None` to skip this example
+            # Skip examples without a parseable reference answer.
             reward = None
-            print("Failed to parse gold solution: ", sol)
         rewards.append(reward)
 
     return rewards
 
 
 def tag_count_reward(completions, **kwargs) -> list[float]:
-    """Reward function that checks if we produce the desired number of think and answer tags associated with `format_reward()`.
+    """Reward the expected line break and answer tags.
 
-    Adapted from: https://gist.github.com/willccbb/4676755236bb08cab5f4e54a0475d6fb#file-grpo_demo-py-L90
+    Adapted from https://gist.github.com/willccbb/4676755236bb08cab5f4e54a0475d6fb.
     """
 
     def count_tags(text: str) -> float:
@@ -124,9 +125,9 @@ def reasoning_steps_reward(completions, **kwargs):
 
 
 def len_reward(
-    completions: list[Dict[str, str]], solution: list[str], **kwargs
-) -> float:
-    """Compute length-based rewards to discourage overthinking and promote token efficiency.
+    completions: list[list[Dict[str, str]]], solution: list[str], **kwargs
+) -> list[float]:
+    """Reward token efficiency while preserving answer correctness.
 
     Taken from the Kimi 1.5 tech report: https://arxiv.org/abs/2501.12599
 
@@ -137,7 +138,7 @@ def len_reward(
     Returns:
         List of rewards where:
         - For correct answers: reward = 0.5 - (len - min_len)/(max_len - min_len)
-        - For incorrect answers: reward = min(0, 0.5 - (len - min_len)/(max_len - min_len))
+        - Incorrect answers receive at most zero reward.
     """
     contents = [completion[0]["content"] for completion in completions]
 
@@ -148,11 +149,14 @@ def len_reward(
         if len(gold_parsed) == 0:
             # Skip unparseable examples
             correctness.append(True)  # Treat as correct to avoid penalizing
-            print("Failed to parse gold solution: ", sol)
             continue
 
         answer_parsed = extract_answer_from_completion(content)
-        correctness.append(verify(parse(gold_parsed), parse(answer_parsed)))
+        try:
+            correctness.append(verify(parse(gold_parsed), parse(answer_parsed)))
+        except Exception as error:
+            logger.debug("Math verification failed: %s", type(error).__name__)
+            correctness.append(False)
 
     # Calculate lengths
     lengths = [len(content) for content in contents]
@@ -185,7 +189,7 @@ def get_cosine_scaled_reward(
     max_len: int = 1000,
 ):
     def cosine_scaled_reward(completions, solution, **kwargs):
-        """Reward function that scales based on completion length using a cosine schedule.
+        """Scale correctness rewards with completion length on a cosine curve.
 
         Shorter correct solutions are rewarded more than longer ones.
         Longer incorrect solutions are penalized less than shorter ones.
@@ -208,12 +212,15 @@ def get_cosine_scaled_reward(
             gold_parsed = extract_answer_from_completion(sol)
             if len(gold_parsed) == 0:
                 rewards.append(1.0)  # Skip unparseable examples
-                print("Failed to parse gold solution: ", sol)
                 continue
 
             answer_parsed = extract_answer_from_completion(content)
 
-            is_correct = verify(parse(gold_parsed), parse(answer_parsed))
+            try:
+                is_correct = verify(parse(gold_parsed), parse(answer_parsed))
+            except Exception as error:
+                logger.debug("Math verification failed: %s", type(error).__name__)
+                is_correct = False
             gen_len = len(content)
 
             # Apply cosine scaling based on length
@@ -285,6 +292,19 @@ def get_repetition_penalty_reward(ngram_size: int, max_penalty: float):
     return repetition_penalty_reward
 
 
+def _load_reward_function(name: str, registry: dict[str, Callable]) -> Callable:
+    if name in registry:
+        return registry[name]
+    if ":" not in name:
+        available = ", ".join(sorted(registry))
+        raise ValueError(f"Unknown reward function {name!r}. Available: {available}")
+    module_name, function_name = name.rsplit(":", 1)
+    reward_function = getattr(import_module(module_name), function_name)
+    if not callable(reward_function):
+        raise TypeError(f"Configured reward {name!r} is not callable")
+    return reward_function
+
+
 def get_reward_funcs(script_args) -> list[Callable]:
     REWARD_FUNCS_REGISTRY = {
         "accuracy": accuracy_reward,
@@ -303,15 +323,7 @@ def get_reward_funcs(script_args) -> list[Callable]:
         "length": len_reward,
         "tag_count": tag_count_reward,
     }
-    reward_funcs = [REWARD_FUNCS_REGISTRY[func] for func in script_args.reward_funcs]
-
-    return reward_funcs
-
-
-if __name__ == "__main__":
-    text = "Ilé-iṣẹ́ ná $15000 lórí ìpolówó fún ọdún kan.\n Fún ọdún mìíràn, ó ná ìdá mẹ́ta iye yẹn, èyí tí ó jẹ́ $15000 * 3 = $45000.\n Àpapọ̀ iye tí ilé-iṣẹ́ ná lórí ìpolówó fún ọdún méjèèjì ni $15000 + $45000 = $60000.\nNítorí náà, àpapọ̀ iye tí ilé-iṣẹ́ ná lórí ìpolówó fún ọdún méjèèjì ni ó ná ìdá mẹ́ta iye yẹn The final answer is $20000"
-    answer = "the answer is 20000"
-    print(accuracy_reward([[{"content": text}]], [answer]))
-    print(tag_count_reward([[{"content": text}]]))
-    print(reasoning_steps_reward([[{"content": text}]]))
-    print(len_reward([[{"content": text}]], [answer]))
+    return [
+        _load_reward_function(name, REWARD_FUNCS_REGISTRY)
+        for name in script_args.reward_funcs
+    ]

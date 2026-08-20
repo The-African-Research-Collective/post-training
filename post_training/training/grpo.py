@@ -1,194 +1,160 @@
-# Copyright 2025 The HuggingFace Team. All rights reserved.
+# Copyright 2020-2026 The HuggingFace Team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+"""Low-level Group Relative Policy Optimization (GRPO).
+
+This is the readable PyTorch-generation path adapted from TRL revision
+6297c47772df3ebb5eef48c3347f75465949256f: sample a group, normalize rewards
+within that group, then optimize a clipped policy objective with reference KL.
+"""
+
+from __future__ import annotations
 
 import logging
-import os
-import sys
 
-import datasets
-import transformers
-from datasets import load_dataset
-from transformers import set_seed
-from transformers.trainer_utils import get_last_checkpoint
+import torch
+from torch.utils.data import DataLoader
 
-from post_training.training.grpo_args import GRPOConfig, GRPOScriptArguments
-from post_training.training.grpo_rewards import get_reward_funcs
-from post_training.training.model_utils import get_model, get_tokenizer
-from trl import GRPOTrainer, ModelConfig, TrlParser, get_peft_config
-
-
-logger = logging.getLogger(__name__)
-
-
-def init_wandb_training(training_args):
-    """
-    Helper function for setting up Weights & Biases logging tools.
-    """
-    if training_args.wandb_entity is not None:
-        os.environ["WANDB_ENTITY"] = training_args.wandb_entity
-    if training_args.wandb_project is not None:
-        os.environ["WANDB_PROJECT"] = training_args.wandb_project
-    if training_args.wandb_run_group is not None:
-        os.environ["WANDB_RUN_GROUP"] = training_args.wandb_run_group
+from post_training.training.alignment_args import AlignmentArguments
+from post_training.training.alignment_utils import (
+    completion_logps,
+    create_accelerator,
+    create_optimizer,
+    create_scheduler,
+    finish_training,
+    load_policy_model,
+    load_reference_model,
+    load_tokenizer,
+    load_train_dataset,
+    mean_metrics,
+    parse_alignment_args,
+    resume_training,
+    save_checkpoint,
+    training_steps,
+)
+from post_training.training.online_utils import (
+    collect_rollouts,
+    grpo_objective,
+    require_supported_online_runtime,
+)
 
 
-def main(script_args, training_args, model_args):
-    # Set seed for reproducibility
-    set_seed(training_args.seed)
-
-    ###############
-    # Setup logging
-    ###############
-    logging.basicConfig(
-        format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-        handlers=[logging.StreamHandler(sys.stdout)],
+def train(args: AlignmentArguments) -> None:
+    accelerator = create_accelerator(args)
+    require_supported_online_runtime(accelerator)
+    tokenizer = load_tokenizer(args)
+    dataset = load_train_dataset(args)
+    dataloader = DataLoader(
+        dataset,
+        batch_size=args.per_device_train_batch_size,
+        shuffle=True,
+        collate_fn=lambda examples: examples,
     )
-    log_level = training_args.get_process_log_level()
-    logger.setLevel(log_level)
-    datasets.utils.logging.set_verbosity(log_level)
-    transformers.utils.logging.set_verbosity(log_level)
-    transformers.utils.logging.enable_default_handler()
-    transformers.utils.logging.enable_explicit_format()
 
-    # Log on each process a small summary
-    logger.warning(
-        f"Process rank: {training_args.local_rank}, device: {training_args.device}, n_gpu: {training_args.n_gpu}"
-        + f" distributed training: {bool(training_args.local_rank != -1)}, 16-bits training: {training_args.fp16}"
+    policy = load_policy_model(args)
+    reference = load_reference_model(args) if args.beta != 0 else None
+    optimizer = create_optimizer(policy, args)
+    policy, optimizer, dataloader = accelerator.prepare(policy, optimizer, dataloader)
+    if reference is not None:
+        reference = accelerator.prepare_model(
+            reference, device_placement=True, evaluation_mode=True
+        )
+
+    updates_per_epoch, total_steps, num_epochs = training_steps(args, dataloader)
+    scheduler = accelerator.prepare(create_scheduler(optimizer, args, total_steps))
+    completed_steps, starting_epoch, skipped_batches = resume_training(
+        accelerator, args, updates_per_epoch
     )
-    logger.info(f"Model parameters {model_args}")
-    logger.info(f"Script parameters {script_args}")
-    logger.info(f"Training parameters {training_args}")
+    checkpointing_steps = (
+        int(args.checkpointing_steps)
+        if args.checkpointing_steps not in {None, "epoch"}
+        else args.checkpointing_steps
+    )
 
-    # Check for last checkpoint
-    last_checkpoint = None
-    if os.path.isdir(training_args.output_dir):
-        last_checkpoint = get_last_checkpoint(training_args.output_dir)
-    if last_checkpoint is not None and training_args.resume_from_checkpoint is None:
-        logger.info(f"Checkpoint detected, resuming training at {last_checkpoint=}.")
-
-    if "wandb" in training_args.report_to:
-        init_wandb_training(training_args)
-
-    # Load the dataset
-    dataset = load_dataset(script_args.dataset_name, name=script_args.dataset_config)
-
-    ################
-    # Load tokenizer
-    ################
-    tokenizer = get_tokenizer(model_args, training_args)
-
-    ##############
-    # Load model #
-    ##############
-    logger.info("*** Loading model ***")
-    model = get_model(model_args, training_args)
-
-    # Get reward functions from the registry
-    reward_funcs = get_reward_funcs(script_args)
-
-    # Format into conversation
-    def make_conversation(
-        example, prompt_column: str = script_args.dataset_prompt_column
-    ):
-        prompt = []
-
-        if training_args.system_prompt is not None:
-            prompt.append({"role": "system", "content": training_args.system_prompt})
-
-        if prompt_column not in example:
-            raise ValueError(
-                f"Dataset Question Field Error: {prompt_column} is not supported."
+    accelerator.print(
+        f"GRPO: {len(dataset)} prompts, {args.num_generations} generations/prompt, "
+        f"{total_steps} optimizer steps"
+    )
+    optimizer.zero_grad()
+    stop_training = completed_steps >= total_steps
+    for epoch in range(starting_epoch, num_epochs):
+        if stop_training:
+            break
+        epoch_dataloader = dataloader
+        if epoch == starting_epoch and skipped_batches:
+            epoch_dataloader = accelerator.skip_first_batches(
+                dataloader, skipped_batches
             )
 
-        prompt.append({"role": "user", "content": example[prompt_column]})
-        return {"prompt": prompt}
+        policy.train()
+        for examples in epoch_dataloader:
+            rollout = collect_rollouts(
+                policy, reference, tokenizer, accelerator, args, examples
+            )
+            with accelerator.accumulate(policy):
+                current_logps = completion_logps(
+                    policy,
+                    rollout.prompt_ids,
+                    rollout.prompt_mask,
+                    rollout.completion_ids,
+                    rollout.completion_mask,
+                )
+                loss, metrics = grpo_objective(current_logps, rollout, args)
+                accelerator.backward(loss)
+                if accelerator.sync_gradients:
+                    accelerator.clip_grad_norm_(policy.parameters(), args.max_grad_norm)
+                optimizer.step()
+                scheduler.step()
+                optimizer.zero_grad()
 
-    dataset = dataset.map(make_conversation)
+            if not accelerator.sync_gradients:
+                continue
+            completed_steps += 1
+            metrics["learning_rate"] = torch.tensor(scheduler.get_last_lr()[0])
+            for index, reward_name in enumerate(args.reward_funcs):
+                metrics[f"reward/{reward_name}"] = torch.nanmean(
+                    rollout.reward_components[:, index]
+                )
+            if completed_steps % args.logging_steps == 0:
+                values = mean_metrics(accelerator, metrics)
+                accelerator.print(f"step {completed_steps}: {values}")
+                if args.with_tracking:
+                    accelerator.log(values, step=completed_steps)
+            if (
+                isinstance(checkpointing_steps, int)
+                and completed_steps % checkpointing_steps == 0
+            ):
+                save_checkpoint(accelerator, args, f"step_{completed_steps}")
+            if completed_steps >= total_steps:
+                stop_training = True
+                break
 
-    for split in dataset:
-        if "messages" in dataset[split].column_names:
-            dataset[split] = dataset[split].remove_columns("messages")
+        if checkpointing_steps == "epoch":
+            checkpoint_name = (
+                f"epoch_{epoch}"
+                if completed_steps % updates_per_epoch == 0
+                else f"step_{completed_steps}"
+            )
+            save_checkpoint(accelerator, args, checkpoint_name)
 
-    #############################
-    # Initialize the GRPO trainer
-    #############################
-    trainer = GRPOTrainer(
-        model=model,
-        reward_funcs=reward_funcs,
-        args=training_args,
-        train_dataset=dataset[script_args.dataset_train_split],
-        eval_dataset=dataset[script_args.dataset_test_split]
-        if training_args.eval_strategy != "no"
-        else None,
-        peft_config=get_peft_config(model_args),
-        processing_class=tokenizer,
+    finish_training(
+        accelerator,
+        policy,
+        tokenizer,
+        args,
+        algorithm="grpo",
+        completed_steps=completed_steps,
     )
 
-    ###############
-    # Training loop
-    ###############
-    logger.info("*** Train ***")
-    checkpoint = None
-    if training_args.resume_from_checkpoint is not None:
-        checkpoint = training_args.resume_from_checkpoint
-    elif last_checkpoint is not None:
-        checkpoint = last_checkpoint
-    train_result = trainer.train(resume_from_checkpoint=checkpoint)
-    metrics = train_result.metrics
-    metrics["train_samples"] = len(dataset[script_args.dataset_train_split])
-    trainer.log_metrics("train", metrics)
-    trainer.save_metrics("train", metrics)
-    trainer.save_state()
 
-    ##################################
-    # Save model and create model card
-    ##################################
-    logger.info("*** Save model ***")
-    trainer.save_model(training_args.output_dir)
-    logger.info(f"Model saved to {training_args.output_dir}")
-
-    # Save everything else on main process
-    kwargs = {
-        "dataset_name": script_args.dataset_name,
-        "tags": ["open-r1"],
-    }
-    if trainer.accelerator.is_main_process:
-        trainer.create_model_card(**kwargs)
-        # Restore k,v cache for fast inference
-        trainer.model.config.use_cache = True
-        trainer.model.config.save_pretrained(training_args.output_dir)
-
-    ##########
-    # Evaluate
-    ##########
-    if training_args.do_eval:
-        logger.info("*** Evaluate ***")
-        metrics = trainer.evaluate()
-        metrics["eval_samples"] = len(dataset[script_args.dataset_test_split])
-        trainer.log_metrics("eval", metrics)
-        trainer.save_metrics("eval", metrics)
-
-    #############
-    # push to hub
-    #############
-    if training_args.push_to_hub:
-        logger.info("Pushing to hub...")
-        trainer.push_to_hub(**kwargs)
+def main() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+    )
+    train(parse_alignment_args())
 
 
 if __name__ == "__main__":
-    parser = TrlParser((GRPOScriptArguments, GRPOConfig, ModelConfig))
-    script_args, training_args, model_args = parser.parse_args_and_config()
-    main(script_args, training_args, model_args)
+    main()

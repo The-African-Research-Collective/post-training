@@ -13,6 +13,7 @@ DEEPSPEED_CONFIG=${4:-}
 MAIN_PROCESS_PORT=${MAIN_PROCESS_PORT:-29501}
 DISTRIBUTED_BACKEND=${DISTRIBUTED_BACKEND:-auto}
 FSDP_SHARDING_STRATEGY=${FSDP_SHARDING_STRATEGY:-FULL_SHARD}
+TRAINING_MODULE=${TRAINING_MODULE:-sft}
 
 # Accelerate calls full precision "no". Keep fp32 as a readable alias.
 if [[ $TRAINING_PRECISION == "fp32" ]]; then
@@ -97,5 +98,5 @@ elif [[ $DISTRIBUTED_BACKEND != "single" ]]; then
     exit 1
 fi
 
-echo "Training with $NUM_GPUS GPU process(es) using $DISTRIBUTED_BACKEND; CUDA visibility is inherited."
-exec "${COMMAND[@]}" -m post_training.training.sft "$CONFIG"
+echo "Training $TRAINING_MODULE with $NUM_GPUS GPU process(es) using $DISTRIBUTED_BACKEND; CUDA visibility is inherited."
+exec "${COMMAND[@]}" -m "post_training.training.$TRAINING_MODULE" "$CONFIG"

@@ -1,4 +1,4 @@
-# Small inspectable GRPO run. Replace the model, dataset, and columns as needed.
+# Small inspectable SDPO run using successful group responses as live teachers.
 model_name_or_path: HuggingFaceTB/SmolLM2-135M-Instruct
 model_revision: main
 torch_dtype: bfloat16
@@ -10,9 +10,9 @@ dataset_train_split: train
 max_train_samples: 32
 prompt_column: question
 solution_column: answer
-system_prompt: Answer the math question and put the final answer on the last line.
+system_prompt: Explain the solution and wrap the final answer in <answer> tags.
 
-exp_name: grpo_smoke
+exp_name: sdpo_smoke
 output_dir: runs
 seed: 42
 per_device_train_batch_size: 1
@@ -23,12 +23,13 @@ max_prompt_length: 256
 max_completion_length: 128
 num_generations: 4
 temperature: 0.9
-top_p: 1.0
-epsilon: 0.2
-beta: 0.04
 reward_funcs:
-  - accuracy
-logging_steps: 1
+  - tag_count
+success_reward_threshold: 0.5
+use_successful_as_teacher: true
+dont_reprompt_on_self_success: true
+include_environment_feedback: false
+distillation_weight: 0.5
 checkpointing_steps: epoch
 with_tracking: false
 push_to_hub: false

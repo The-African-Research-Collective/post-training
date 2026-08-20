@@ -183,8 +183,71 @@ dataset or model identifier does not establish permission to use it: review its
 card, license, provenance, personal-data handling, and access terms before
 training or publishing artifacts.
 
-## Other workflows
+## Low-level alignment: DPO, GRPO, and SDPO
 
-Data generation, translation, evaluation, DPO, and GRPO code remains available
-under `post_training/`. These paths are being hardened incrementally; SFT is the
-first workflow moved onto the shared, dataset-extensible runtime contract.
+The alignment entry points use Accelerate and ordinary PyTorch operations rather
+than TRL Trainer classes. Their core data layout and objectives are adapted from
+Hugging Face TRL at revision
+`6297c47772df3ebb5eef48c3347f75465949256f` under Apache-2.0:
+
+- `post_training.training.dpo` performs one concatenated chosen/rejected forward
+  pass and the sigmoid DPO objective against a frozen reference model;
+- `post_training.training.grpo` generates response groups with PyTorch, evaluates
+  configurable local reward functions, normalizes group advantages, and applies
+  clipped GRPO with optional reference KL;
+- `post_training.training.sdpo` adds TRL's experimental sampled-token SDPO loss.
+  The live policy becomes its own teacher when reprompted with another successful
+  group response and/or feedback from a configurable dataset column.
+
+This intentionally excludes vLLM serving, multimodal batches, and TRL's less
+common loss variants. DPO supports single GPU, DDP, FSDP, and DeepSpeed through
+the shared launcher. GRPO and SDPO currently support single GPU and DDP; their
+explicit PyTorch generation path rejects sharded FSDP/DeepSpeed models.
+DPO keeps its frozen reference model replicated on each device, so account for
+that memory when selecting a model size for FSDP.
+
+### Dataset contracts
+
+DPO requires configurable `prompt`, `chosen`, and `rejected` columns. Values can
+be plain strings or conversational `role`/`content` lists. GRPO and SDPO require
+a configurable prompt column. The built-in math rewards also use the configured
+solution column; other dataset columns are passed to reward functions unchanged.
+SDPO optionally reads environment feedback from `feedback_column`.
+Custom reward functions can be configured as `package.module:function`; they
+receive `completions`, rendered `prompts`, `solution`, and every original dataset
+column as keyword arguments and must return one float or `None` per completion.
+
+Start with the small configs in `configs/dpo/smoke.yaml`,
+`configs/grpo/dummy.yaml`, and `configs/sdpo/smoke.yaml`, then replace the model,
+dataset, column mapping, and limits. Run them on a GPU server with:
+
+```bash
+scripts/run_alignment.sh dpo configs/dpo/smoke.yaml 1 bf16
+scripts/run_alignment.sh grpo configs/grpo/dummy.yaml 1 bf16
+scripts/run_alignment.sh sdpo configs/sdpo/smoke.yaml 1 bf16
+```
+
+The same config and `--name=value` overrides work on Modal. A10G is the default:
+
+```bash
+uv run modal run --detach -m post_training.training.modal_alignment \
+  --algorithm grpo \
+  --config configs/grpo/dummy.yaml \
+  --gpu A10G \
+  --num-gpus 1 \
+  --overrides="--max_train_samples=32 --exp_name=grpo_modal_smoke"
+```
+
+Select `--algorithm dpo` or `--algorithm sdpo` for the other trainers. Tracking
+uses the same `with_tracking`, `report_to`, and Trackio/W&B settings as SFT.
+Publishing remains opt-in through Modal's `--push-to-hub` flag and a secret with
+`HF_TOKEN`.
+
+Local artifacts are stored at `<output_dir>/<exp_name>/`. On Modal that becomes
+`/outputs/<exp_name>/` inside the persistent `post-training-outputs` Volume.
+Accelerator state is retained in `step_<n>` or `epoch_<n>` directories; the final
+portable model or LoRA adapter, tokenizer, and `metadata.json` live directly in
+the experiment directory alongside the resolved `training_config.json`.
+
+Data generation, translation, and evaluation remain available under
+`post_training/` and continue to be hardened independently.
