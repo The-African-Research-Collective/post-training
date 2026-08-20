@@ -132,7 +132,9 @@ def sampled_token_distillation(
     return loss, valid.float().mean()
 
 
-def train(args: AlignmentArguments) -> None:
+def train(args: AlignmentArguments, *, rollout_backend: str = "pytorch") -> None:
+    if rollout_backend not in {"pytorch", "vllm"}:
+        raise ValueError("rollout_backend must be pytorch or vllm")
     if not args.use_successful_as_teacher and not args.include_environment_feedback:
         raise ValueError(
             "SDPO requires use_successful_as_teacher or include_environment_feedback"
@@ -166,6 +168,11 @@ def train(args: AlignmentArguments) -> None:
     completed_steps, starting_epoch, skipped_batches = resume_training(
         accelerator, args, updates_per_epoch
     )
+    rollout_sampler = None
+    if rollout_backend == "vllm":
+        from post_training.training.vllm_rollout import VLLMRolloutSampler
+
+        rollout_sampler = VLLMRolloutSampler(args, accelerator)
     checkpointing_steps = (
         int(args.checkpointing_steps)
         if args.checkpointing_steps not in {None, "epoch"}
@@ -173,7 +180,8 @@ def train(args: AlignmentArguments) -> None:
     )
 
     accelerator.print(
-        f"SDPO: {len(dataset)} prompts, {args.num_generations} generations/prompt, "
+        f"SDPO ({rollout_backend} rollouts): {len(dataset)} prompts, "
+        f"{args.num_generations} generations/prompt, "
         f"distillation_weight={args.distillation_weight}"
     )
     optimizer.zero_grad()
@@ -190,7 +198,14 @@ def train(args: AlignmentArguments) -> None:
         policy.train()
         for examples in epoch_dataloader:
             rollout = collect_rollouts(
-                policy, reference, tokenizer, accelerator, args, examples
+                policy,
+                reference,
+                tokenizer,
+                accelerator,
+                args,
+                examples,
+                rollout_sampler=rollout_sampler,
+                policy_version=completed_steps,
             )
             teacher_batch = build_teacher_batch(
                 rollout, tokenizer, args, accelerator.device
@@ -261,12 +276,14 @@ def train(args: AlignmentArguments) -> None:
             )
             save_checkpoint(accelerator, args, checkpoint_name)
 
+    if rollout_sampler is not None:
+        rollout_sampler.close()
     finish_training(
         accelerator,
         policy,
         tokenizer,
         args,
-        algorithm="sdpo",
+        algorithm="sdpo_vllm" if rollout_backend == "vllm" else "sdpo",
         completed_steps=completed_steps,
     )
 

@@ -83,6 +83,17 @@ class AlignmentArguments:
     repetition_n_grams: int = 3
     repetition_max_penalty: float = -1.0
 
+    # Optional vLLM rollout server used by grpo_vllm and sdpo_vllm
+    vllm_server_host: str = "127.0.0.1"
+    vllm_server_port: int = 8000
+    vllm_group_port: int = 51216
+    vllm_server_timeout: float = 300.0
+    vllm_repetition_penalty: float = 1.0
+    vllm_top_k: int = -1
+    vllm_min_p: float = 0.0
+    vllm_gpu_memory_utilization: float = 0.85
+    vllm_enforce_eager: bool = False
+
     # SDPO sampled-token self-distillation
     distillation_weight: float = 1.0
     success_reward_threshold: float = 1.0
@@ -127,6 +138,23 @@ class AlignmentArguments:
             raise ValueError("temperature must be greater than 0")
         if not 0 < self.top_p <= 1:
             raise ValueError("top_p must be in (0, 1]")
+        if (
+            not 0 < self.vllm_server_port <= 65535
+            or not 0 < self.vllm_group_port <= 65535
+        ):
+            raise ValueError("vLLM ports must be between 1 and 65535")
+        if self.vllm_server_port == self.vllm_group_port:
+            raise ValueError("vLLM server_port and group_port must differ")
+        if self.vllm_server_timeout <= 0:
+            raise ValueError("vllm_server_timeout must be positive")
+        if self.vllm_repetition_penalty <= 0:
+            raise ValueError("vllm_repetition_penalty must be positive")
+        if self.vllm_top_k == 0 or self.vllm_top_k < -1:
+            raise ValueError("vllm_top_k must be -1 or a positive integer")
+        if not 0 <= self.vllm_min_p <= 1:
+            raise ValueError("vllm_min_p must be in [0, 1]")
+        if not 0 < self.vllm_gpu_memory_utilization <= 1:
+            raise ValueError("vllm_gpu_memory_utilization must be in (0, 1]")
         if self.epsilon < 0:
             raise ValueError("epsilon must be non-negative")
         if self.beta < 0:

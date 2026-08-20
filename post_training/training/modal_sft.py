@@ -83,27 +83,32 @@ def _distributed_launch_args(
     return []
 
 
-image = (
-    modal.Image.from_registry(CUDA_IMAGE, add_python="3.11")
-    .entrypoint([])
-    .apt_install("build-essential", "git")
-    .uv_sync(
-        uv_project_dir=".",
-        frozen=True,
-        extras=["gpu", "tracking"],
+def _build_image(*extras: str) -> modal.Image:
+    """Build one locked CUDA image without adding optional runtimes globally."""
+    return (
+        modal.Image.from_registry(CUDA_IMAGE, add_python="3.11")
+        .entrypoint([])
+        .apt_install("build-essential", "git")
+        .uv_sync(
+            uv_project_dir=".",
+            frozen=True,
+            extras=list(extras),
+        )
+        .env(
+            {
+                "HF_HOME": f"{CACHE_PATH}/huggingface",
+                "HF_DATASETS_CACHE": f"{CACHE_PATH}/huggingface/datasets",
+                "TRACKIO_DIR": f"{CACHE_PATH}/trackio",
+                "TOKENIZERS_PARALLELISM": "false",
+                "TORCH_HOME": f"{CACHE_PATH}/torch",
+                "PYTHONUNBUFFERED": "1",
+            }
+        )
+        .add_local_python_source("post_training")
     )
-    .env(
-        {
-            "HF_HOME": f"{CACHE_PATH}/huggingface",
-            "HF_DATASETS_CACHE": f"{CACHE_PATH}/huggingface/datasets",
-            "TRACKIO_DIR": f"{CACHE_PATH}/trackio",
-            "TOKENIZERS_PARALLELISM": "false",
-            "TORCH_HOME": f"{CACHE_PATH}/torch",
-            "PYTHONUNBUFFERED": "1",
-        }
-    )
-    .add_local_python_source("post_training")
-)
+
+
+image = _build_image("gpu", "tracking")
 
 
 @app.function(

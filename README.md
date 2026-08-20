@@ -199,10 +199,12 @@ Hugging Face TRL at revision
   The live policy becomes its own teacher when reprompted with another successful
   group response and/or feedback from a configurable dataset column.
 
-This intentionally excludes vLLM serving, multimodal batches, and TRL's less
-common loss variants. DPO supports single GPU, DDP, FSDP, and DeepSpeed through
-the shared launcher. GRPO and SDPO currently support single GPU and DDP; their
-explicit PyTorch generation path rejects sharded FSDP/DeepSpeed models.
+The default GRPO and SDPO modules intentionally keep rollout generation in
+PyTorch. Separate `grpo_vllm` and `sdpo_vllm` modules use TRL's dedicated vLLM
+server protocol for higher-throughput sampling without duplicating either
+objective. DPO supports single GPU, DDP, FSDP, and DeepSpeed through the shared
+launcher. Both online rollout backends support single GPU and DDP training;
+they reject sharded FSDP/DeepSpeed models.
 DPO keeps its frozen reference model replicated on each device, so account for
 that memory when selecting a model size for FSDP.
 
@@ -227,6 +229,57 @@ scripts/run_alignment.sh grpo configs/grpo/dummy.yaml 1 bf16
 scripts/run_alignment.sh sdpo configs/sdpo/smoke.yaml 1 bf16
 ```
 
+### vLLM rollout sampling
+
+vLLM is an optional Python 3.10–3.11, Linux x86-64 dependency so ordinary
+training environments do not install its serving stack. Version 0.8.2 is the
+newest release compatible with this repository's pinned Torch 2.6 and
+Transformers 4.49 environment. The other workflows continue to support Python
+3.12; Modal's vLLM image uses Python 3.11. Because PyPI no longer carries
+vLLM 0.8.2's exact xgrammar 0.1.16 pin, `uv` overrides it with xgrammar 0.1.17,
+the immediate patch used by vLLM 0.8.3. Keep this compatibility exception
+isolated to trusted rollout jobs.
+
+```bash
+uv sync --frozen --extra gpu --extra tracking --extra vllm
+```
+
+Run the rollout server on GPU 0. The model, revision, dtype, and context length
+must match the training config; the example values match
+`configs/grpo/dummy.yaml`. Keep this custom weight-sync server on loopback—it is
+not an authenticated public inference endpoint.
+
+```bash
+CUDA_VISIBLE_DEVICES=0 uv run python -m trl.scripts.vllm_serve \
+  --model HuggingFaceTB/SmolLM2-135M-Instruct \
+  --revision main \
+  --tensor_parallel_size 1 \
+  --host 127.0.0.1 \
+  --port 8000 \
+  --gpu_memory_utilization 0.85 \
+  --dtype bfloat16 \
+  --max_model_len 384
+```
+
+In another shell, train on a different visible GPU. The vLLM variants gather
+prompts across DDP ranks, return token IDs to each rank, and synchronize full or
+merged LoRA policy weights once per optimizer update.
+
+```bash
+CUDA_VISIBLE_DEVICES=1 scripts/run_alignment.sh \
+  grpo_vllm configs/grpo/dummy.yaml 1 bf16
+
+CUDA_VISIBLE_DEVICES=1 scripts/run_alignment.sh \
+  sdpo_vllm configs/sdpo/smoke.yaml 1 bf16
+```
+
+Server connection, sampling, and memory settings are configurable through
+`vllm_server_host`, `vllm_server_port`, `vllm_group_port`,
+`vllm_server_timeout`, `vllm_repetition_penalty`, `vllm_top_k`, `vllm_min_p`,
+`vllm_gpu_memory_utilization`, and `vllm_enforce_eager`. A custom tokenizer or a
+model requiring `trust_remote_code` is rejected because TRL 0.17's rollout
+server cannot safely mirror those trainer settings.
+
 The same config and `--name=value` overrides work on Modal. A10G is the default:
 
 ```bash
@@ -237,6 +290,25 @@ uv run modal run --detach -m post_training.training.modal_alignment \
   --num-gpus 1 \
   --overrides="--max_train_samples=32 --exp_name=grpo_modal_smoke"
 ```
+
+For vLLM sampling, select a vLLM variant and reserve at least one additional
+rollout GPU. Here `--num-gpus` counts training GPUs and `--rollout-gpus` counts
+dedicated vLLM GPUs; Modal requests their sum and isolates the two processes.
+
+```bash
+uv run modal run --detach -m post_training.training.modal_alignment \
+  --algorithm grpo_vllm \
+  --config configs/grpo/dummy.yaml \
+  --gpu A10G \
+  --num-gpus 1 \
+  --rollout-gpus 1 \
+  --secret post-training \
+  --overrides="--max_train_samples=32 --exp_name=grpo_vllm_modal_smoke"
+```
+
+The Modal adapter starts the vLLM server on loopback, waits for it to become
+healthy, runs the same Accelerate trainer, and then stops the server. A one-GPU
+trainer plus one rollout GPU therefore allocates two billable A10Gs.
 
 Select `--algorithm dpo` or `--algorithm sdpo` for the other trainers. Tracking
 uses the same `with_tracking`, `report_to`, and Trackio/W&B settings as SFT.

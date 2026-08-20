@@ -5,9 +5,9 @@
 """Readable rollout and clipped-policy pieces shared by GRPO and SDPO.
 
 The objective follows TRL's GRPO implementation at revision
-6297c47772df3ebb5eef48c3347f75465949256f. This module deliberately keeps the
-single-policy path: PyTorch generation, grouped rewards, clipped importance
-ratios, and optional reference-policy KL.
+6297c47772df3ebb5eef48c3347f75465949256f. The default sampler uses PyTorch;
+the same grouped rewards, clipped importance ratios, and optional reference KL
+also accept token IDs from the dedicated vLLM rollout adapter.
 """
 
 from __future__ import annotations
@@ -136,6 +136,9 @@ def collect_rollouts(
     accelerator: Accelerator,
     args: AlignmentArguments,
     examples: list[dict[str, Any]],
+    *,
+    rollout_sampler=None,
+    policy_version: int = 0,
 ) -> RolloutBatch:
     """Generate a group per prompt, score it, and freeze behavior log-probs."""
     if not examples:
@@ -169,25 +172,36 @@ def collect_rollouts(
     ]
 
     unwrapped = accelerator.unwrap_model(model)
-    was_training = unwrapped.training
-    unwrapped.eval()
-    with torch.no_grad():
-        generated = unwrapped.generate(
-            input_ids=prompt_ids,
-            attention_mask=prompt_mask,
-            max_new_tokens=args.max_completion_length,
-            do_sample=True,
-            temperature=args.temperature,
-            top_p=args.top_p,
-            pad_token_id=tokenizer.pad_token_id,
-            eos_token_id=tokenizer.eos_token_id,
-            use_cache=True,
-        )
-    if was_training:
-        unwrapped.train()
+    if rollout_sampler is None:
+        was_training = unwrapped.training
+        unwrapped.eval()
+        with torch.no_grad():
+            generated = unwrapped.generate(
+                input_ids=prompt_ids,
+                attention_mask=prompt_mask,
+                max_new_tokens=args.max_completion_length,
+                do_sample=True,
+                temperature=args.temperature,
+                top_p=args.top_p,
+                pad_token_id=tokenizer.pad_token_id,
+                eos_token_id=tokenizer.eos_token_id,
+                use_cache=True,
+            )
+        if was_training:
+            unwrapped.train()
 
-    completion_ids = generated[:, prompt_ids.size(1) :]
-    completion_mask = _completion_mask(completion_ids, tokenizer.eos_token_id)
+        completion_ids = generated[:, prompt_ids.size(1) :]
+        completion_mask = _completion_mask(completion_ids, tokenizer.eos_token_id)
+    else:
+        completion_ids, padding_mask = rollout_sampler.generate(
+            model,
+            tokenizer,
+            base_prompts,
+            policy_version,
+        )
+        completion_mask = padding_mask * _completion_mask(
+            completion_ids, tokenizer.eos_token_id
+        )
     completion_texts = tokenizer.batch_decode(
         completion_ids,
         skip_special_tokens=True,

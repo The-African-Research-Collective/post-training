@@ -8,3 +8,7 @@ Copyright 2020–2026 The HuggingFace Team. Licensed under the Apache License,
 Version 2.0. A copy is included at `LICENSES/Apache-2.0.txt`. The adapted files
 identify their source and describe this repository's modifications in their
 module documentation.
+
+The vLLM rollout transport and policy-weight synchronization are additionally
+adapted from TRL 0.17.0's `trl.extras.vllm_client` and `GRPOTrainer` vLLM path,
+under the same Apache-2.0 license and copyright notice.

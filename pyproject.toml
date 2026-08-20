@@ -17,6 +17,7 @@ dependencies = [
     "math-verify==0.7.0",
     "peft==0.14.0",
     "python-dotenv==1.0.1",
+    "pyyaml==6.0.3",
     "sacrebleu==2.5.1",
     "tenacity==9.0.0",
     "torch==2.6.0",
@@ -32,6 +33,9 @@ gpu = [
 ]
 tracking = ["trackio==0.20.2", "wandb==0.19.11"]
 modal = ["modal==1.5.4"]
+vllm = [
+    "vllm==0.8.2; python_version < '3.12' and sys_platform == 'linux' and platform_machine == 'x86_64'",
+]
 dev = [
     "ipykernel==6.29.5",
     "ipywidgets==8.1.5",
@@ -44,6 +48,13 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["post_training"]
+
+[tool.uv]
+# vLLM 0.8.2 pins an xgrammar release that is no longer available on PyPI.
+# 0.1.17 is the immediate compatible patch used by vLLM 0.8.3.
+override-dependencies = [
+    "xgrammar==0.1.17; platform_machine == 'aarch64' or platform_machine == 'x86_64'",
+]
 
 [tool.ruff]
 extend-exclude = ["src/data/persona_generation/prompt_template.py"]

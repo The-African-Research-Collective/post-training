@@ -4,9 +4,11 @@
 # you may not use this file except in compliance with the License.
 """Low-level Group Relative Policy Optimization (GRPO).
 
-This is the readable PyTorch-generation path adapted from TRL revision
+This readable objective is adapted from TRL revision
 6297c47772df3ebb5eef48c3347f75465949256f: sample a group, normalize rewards
 within that group, then optimize a clipped policy objective with reference KL.
+The default entry point samples with PyTorch; grpo_vllm supplies vLLM tokens to
+the same loop.
 """
 
 from __future__ import annotations
@@ -40,7 +42,9 @@ from post_training.training.online_utils import (
 )
 
 
-def train(args: AlignmentArguments) -> None:
+def train(args: AlignmentArguments, *, rollout_backend: str = "pytorch") -> None:
+    if rollout_backend not in {"pytorch", "vllm"}:
+        raise ValueError("rollout_backend must be pytorch or vllm")
     accelerator = create_accelerator(args)
     require_supported_online_runtime(accelerator)
     tokenizer = load_tokenizer(args)
@@ -66,6 +70,11 @@ def train(args: AlignmentArguments) -> None:
     completed_steps, starting_epoch, skipped_batches = resume_training(
         accelerator, args, updates_per_epoch
     )
+    rollout_sampler = None
+    if rollout_backend == "vllm":
+        from post_training.training.vllm_rollout import VLLMRolloutSampler
+
+        rollout_sampler = VLLMRolloutSampler(args, accelerator)
     checkpointing_steps = (
         int(args.checkpointing_steps)
         if args.checkpointing_steps not in {None, "epoch"}
@@ -73,8 +82,8 @@ def train(args: AlignmentArguments) -> None:
     )
 
     accelerator.print(
-        f"GRPO: {len(dataset)} prompts, {args.num_generations} generations/prompt, "
-        f"{total_steps} optimizer steps"
+        f"GRPO ({rollout_backend} rollouts): {len(dataset)} prompts, "
+        f"{args.num_generations} generations/prompt, {total_steps} optimizer steps"
     )
     optimizer.zero_grad()
     stop_training = completed_steps >= total_steps
@@ -90,7 +99,14 @@ def train(args: AlignmentArguments) -> None:
         policy.train()
         for examples in epoch_dataloader:
             rollout = collect_rollouts(
-                policy, reference, tokenizer, accelerator, args, examples
+                policy,
+                reference,
+                tokenizer,
+                accelerator,
+                args,
+                examples,
+                rollout_sampler=rollout_sampler,
+                policy_version=completed_steps,
             )
             with accelerator.accumulate(policy):
                 current_logps = completion_logps(
@@ -138,12 +154,14 @@ def train(args: AlignmentArguments) -> None:
             )
             save_checkpoint(accelerator, args, checkpoint_name)
 
+    if rollout_sampler is not None:
+        rollout_sampler.close()
     finish_training(
         accelerator,
         policy,
         tokenizer,
         args,
-        algorithm="grpo",
+        algorithm="grpo_vllm" if rollout_backend == "vllm" else "grpo",
         completed_steps=completed_steps,
     )
 
